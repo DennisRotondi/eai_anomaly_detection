@@ -6,7 +6,9 @@ class Hparams:
     batch_size: int = 256  # size of the batches
     n_cpu: int = 8  # number of cpu threads to use for the dataloaders
     dataset_dir: str = "dataset/mvtec_anomaly_detection"
-    lr: float = 1e-4
+    lr: float = 1e-3
     latent_size: int = 128 # size of autoencoder latent space
-    log_images: int = 4 #how many images to log each time
+    log_images: int = 4 # how many images to log each time
+    threshold: float = 2
+    threshold_weight: float = 1.4
     # to add wd, betas, ...

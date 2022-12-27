@@ -14,7 +14,16 @@ class MVTec_Dataset(Dataset):
 		self.hparams = hparams
 		self.transform = transforms.Compose([ # classica trasformazione per immagini
 			transforms.Resize((hparams.img_size, hparams.img_size)),
-			transforms.ToTensor()
+            # Converts a PIL Image or numpy.ndarray (H x W x C) in the range [0, 255] 
+            # to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0]
+			transforms.ToTensor(),
+            # to have 0 mean and values in range [-1, 1]
+            # The parameters mean, std are passed as 0.5, 0.5 in your case. 
+            # This will normalize the image in the range [-1,1]. For example,
+            # the minimum value 0 will be converted to (0-0.5)/0.5=-1, 
+            # the maximum value of 1 will be converted to (1-0.5)/0.5=1.
+            # https://discuss.pytorch.org/t/understanding-transform-normalize/21730
+            transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
 		])
 		self.make_data()
 
@@ -59,7 +68,7 @@ class MVTec_DataModule(pl.LightningDataModule):
             shuffle=True,
             num_workers=self.hparams.n_cpu,
             # collate_fn=self.collate_train,
-            #pin_memory=True,
+            pin_memory=True,
             persistent_workers=True
         )
 
@@ -70,10 +79,13 @@ class MVTec_DataModule(pl.LightningDataModule):
             shuffle=False,
             num_workers=self.hparams.n_cpu,
             # collate_fn=self.collate_test,
-            #pin_memory=True,
+            pin_memory=True,
             persistent_workers=True
         )
-        
+    #to invert the normalization of the compose transform.
+    @staticmethod
+    def denormalize(tensor):
+        return tensor*0.5 + 0.5    
     # def collate_train(self, batch):
     #     batch_out = dict()
     #     batch_out["id"] = [sample["id"] for sample in batch]
