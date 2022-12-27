@@ -19,6 +19,7 @@ class MVTec_Dataset(Dataset):
 		self.make_data()
 
 	def make_data(self):
+        # this function read the fresh downloaded dataset and make it ready for the training
 		class_dir_list = list()
 		for f in [os.path.join(self.dataset_dir, e) for e in os.listdir(self.dataset_dir)]:
 			if os.path.isdir(f):
@@ -41,16 +42,15 @@ class MVTec_Dataset(Dataset):
 		return self.data[idx]
 
 class MVTec_DataModule(pl.LightningDataModule):
-    def __init__(self, hparams: dict, dataset_dir: str):
+    def __init__(self, hparams: dict):
         super().__init__()
         self.save_hyperparameters(hparams)
-        self.dataset_dir = dataset_dir
 
     def setup(self, stage: Optional[str] = None) -> None:
         # TRAIN
-        self.data_train = MVTec_Dataset(self.dataset_dir, "train", self.hparams)
+        self.data_train = MVTec_Dataset(self.hparams.dataset_dir, "train", self.hparams)
         # TEST
-        self.data_test = MVTec_Dataset(self.dataset_dir, "test", self.hparams)
+        self.data_test = MVTec_Dataset(self.hparams.dataset_dir, "test", self.hparams)
 
     def train_dataloader(self):
         return DataLoader(
@@ -86,5 +86,3 @@ class MVTec_DataModule(pl.LightningDataModule):
     #     batch_out["img"] = torch.stack([sample["img"] for sample in batch], dim=0) 
     #     batch_out["label"] = [sample["label"] for sample in batch]
     #     return batch_out
-    
-# data = VQA_DataModule(hparams, train_MVTec, test_MVTec)
