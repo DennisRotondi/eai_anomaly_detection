@@ -68,10 +68,10 @@ class AE(pl.LightningModule):
     def anomaly_score_prediction(self, img, recon):
         recon = recon.view(recon.shape[0],-1)
         img = img.view(img.shape[0],-1)
-        anomaly_score = torch.abs(recon-img).mean(dim=-1)
+        anomaly_score = torch.abs(recon-img).sum(dim=-1)
         # anomaly_score = F.normalize(anomaly_score,p=2.0, dim=-1)
         ris = (anomaly_score > self.threshold*self.hparams.threshold_weight).long()
-        return ris, anomaly_score.max()
+        return ris, anomaly_score.mean()
 
     def configure_optimizers(self):
         # note wd = 0 in this simplest version

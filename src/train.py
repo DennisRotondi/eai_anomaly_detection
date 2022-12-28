@@ -25,7 +25,7 @@ def train_model(data, model, experiment_name, patience, metric_to_monitor, mode,
     # the trainer collect all the useful informations so far for the training
     n_gpus = 1 if torch.cuda.is_available() else 0
     trainer = pl.Trainer(
-        logger=logger, max_epochs=epochs, log_every_n_steps=1, gpus=n_gpus,
+        logger=logger, min_epochs = epochs/2, max_epochs=epochs, log_every_n_steps=1, gpus=n_gpus,
         callbacks=[early_stop_callback, checkpoint_callback],
         num_sanity_val_steps=0,
         # auto_lr_find = True,

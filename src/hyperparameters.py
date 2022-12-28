@@ -9,6 +9,6 @@ class Hparams:
     lr: float = 1e-3
     latent_size: int = 128 # size of autoencoder latent space
     log_images: int = 4 # how many images to log each time
-    threshold: float = 2
-    threshold_weight: float = 1.4
+    threshold: float = 1e10
+    threshold_weight: float = 1.2
     # to add wd, betas, ...
