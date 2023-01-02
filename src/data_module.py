@@ -67,8 +67,7 @@ class MVTec_DataModule(pl.LightningDataModule):
             batch_size=self.hparams.batch_size,
             shuffle=True,
             num_workers=self.hparams.n_cpu,
-            # collate_fn=self.collate_train,
-            pin_memory=True,
+            pin_memory=self.hparams.pin_memory,
             persistent_workers=True
         )
 
@@ -78,23 +77,10 @@ class MVTec_DataModule(pl.LightningDataModule):
             batch_size=self.hparams.batch_size,
             shuffle=False,
             num_workers=self.hparams.n_cpu,
-            # collate_fn=self.collate_test,
-            pin_memory=True,
+            pin_memory=self.hparams.pin_memory,
             persistent_workers=True
         )
     #to invert the normalization of the compose transform.
     @staticmethod
     def denormalize(tensor):
-        return tensor*0.5 + 0.5    
-    # def collate_train(self, batch):
-    #     batch_out = dict()
-    #     batch_out["id"] = [sample["id"] for sample in batch]
-    #     batch_out["img"] = torch.stack([sample["img"] for sample in batch], dim=0)
-    #     return batch_out
-    
-    # def collate_test(self, batch):
-    #     batch_out = dict()
-    #     batch_out["id"] = [sample["id"] for sample in batch]
-    #     batch_out["img"] = torch.stack([sample["img"] for sample in batch], dim=0) 
-    #     batch_out["label"] = [sample["label"] for sample in batch]
-    #     return batch_out
+        return tensor*0.5 + 0.5
