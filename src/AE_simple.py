@@ -64,11 +64,10 @@ class AE(pl.LightningModule):
 		self.threshold = self.hparams.threshold # find a way to compute the "ideal" one!
 		self.avg_anomaly = 0 # average anomaly score
 		self.std_anomaly = 0 # standard deviation anomaly score
-		
-		self.val_recall = Recall(task="binary")
-		self.val_precision = Precision(task="binary")
-		self.val_f1score = F1Score(task="binary")
 
+		self.val_precision = Precision(task = 'binary', num_classes = 2, average = 'macro')
+		self.val_recall = Recall(task = 'binary', num_classes = 2, average = 'macro')
+		self.val_f1score = F1Score(task = 'binary', num_classes = 2, average = 'macro')
 
 	def forward(self, img):
 		return self.decoder(self.encoder(img))
@@ -159,9 +158,9 @@ class AE(pl.LightningModule):
 		self.log("val_loss", self.loss_function(recon_imgs, imgs)["loss"], on_step=False, on_epoch=True, batch_size=imgs.shape[0])
 		# RECALL, PRECISION, F1 SCORE
 		pred = self.anomaly_prediction(imgs, recon_imgs)
-		self.log("precision", self.val_precision(pred, batch['label']), on_step=True, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
-		self.log("recall", self.val_recall(pred, batch['label']), on_step=True, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
-		self.log("f1_score", self.val_f1score(pred, batch['label']), on_step=True, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
+		self.log("precision", self.val_precision(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
+		self.log("recall", self.val_recall(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
+		self.log("f1_score", self.val_f1score(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
 		# IMAGES
 		images = self.get_images_for_log(imgs[0:self.hparams.log_images], recon_imgs[0:self.hparams.log_images])
 		return {"images": images}
