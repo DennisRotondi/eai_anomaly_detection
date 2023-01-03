@@ -9,6 +9,7 @@ import pytorch_lightning as pl
 from .data_module import MVTec_DataModule
 import random
 from torchmetrics import Recall, Precision, F1Score
+from torchmetrics.classification import BinaryAUROC
 
 def conv_block(in_features, out_features, kernel_size, stride, padding, bias, slope, normalize = True, affine = True):
 	layer = [nn.Conv2d(in_features, out_features, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias)]
@@ -27,12 +28,12 @@ def deconv_block(in_features, out_features, kernel_size, stride, padding, bias, 
 	return layer
 
 class Encoder(nn.Module):
-	def __init__(self, latent_dim):
+	def __init__(self, latent_dim, channels):
 		super().__init__()
 		""" the input image is 3x256x256, this size allow to preserve the high res + still load all the dataset"""
 		self.convolutions = nn.Sequential(
-			*conv_block(3, 16, kernel_size=4, stride=2, padding=1, bias=False, slope = 0.19, normalize=True),
-			*[m for mod in [conv_block(2**i, 2**(i+1), kernel_size=4, stride=2, padding=1, bias=False, slope = 0.19, normalize=True) \
+			*conv_block(channels, 16, kernel_size=4, stride=2, padding=1, bias=False, slope = 0.2, normalize=True),
+			*[m for mod in [conv_block(2**i, 2**(i+1), kernel_size=4, stride=2, padding=1, bias=False, slope = 0.2, normalize=True) \
 				for i in range(4,9)] for m in mod],
 			*conv_block(512, 1024, kernel_size=4, stride=1, padding=0, bias=False, slope = 0, normalize=False)
 		)
@@ -42,13 +43,13 @@ class Encoder(nn.Module):
 		return self.fc(self.convolutions(img).squeeze(-1).squeeze(-1))
 
 class Decoder(nn.Module):
-	def __init__(self, latent_dim):
+	def __init__(self, latent_dim, channels):
 		super().__init__()
 		self.deconvolution = nn.Sequential(
-			*deconv_block(latent_dim, 1024, kernel_size=4, stride=1, padding=0, bias=False, slope = 0.19, normalize=True),
-			*[m for mod in [deconv_block(2**(i+1), 2**i, kernel_size=4, stride=2, padding=1, bias=False, slope = 0.19, normalize=True) \
+			*deconv_block(latent_dim, 1024, kernel_size=4, stride=1, padding=0, bias=False, slope = 0.2, normalize=True),
+			*[m for mod in [deconv_block(2**(i+1), 2**i, kernel_size=4, stride=2, padding=1, bias=False, slope = 0.2, normalize=True) \
 				for i in range(9,4,-1)] for m in mod],
-			*deconv_block(32, 3, kernel_size=4, stride=2, padding=1, bias=False, slope = 0, normalize=False))
+			*deconv_block(32, channels, kernel_size=4, stride=2, padding=1, bias=False, slope = 0, normalize=False))
 
 	def forward(self, input):
 		return torch.tanh(self.deconvolution(input.unsqueeze(-1).unsqueeze(-1)))
@@ -58,8 +59,8 @@ class AE(pl.LightningModule):
 	def __init__(self, hparams):
 		super(AE, self).__init__()
 		self.save_hyperparameters(hparams)
-		self.encoder = Encoder(self.hparams.latent_size)
-		self.decoder = Decoder(self.hparams.latent_size)
+		self.encoder = Encoder(self.hparams.latent_size, self.hparams.img_channels)
+		self.decoder = Decoder(self.hparams.latent_size, self.hparams.img_channels)
 		
 		self.threshold = self.hparams.threshold # find a way to compute the "ideal" one!
 		self.avg_anomaly = 0 # average anomaly score
@@ -68,6 +69,7 @@ class AE(pl.LightningModule):
 		self.val_precision = Precision(task = 'binary', num_classes = 2, average = 'macro')
 		self.val_recall = Recall(task = 'binary', num_classes = 2, average = 'macro')
 		self.val_f1score = F1Score(task = 'binary', num_classes = 2, average = 'macro')
+		self.val_auroc = BinaryAUROC()
 
 	def forward(self, img):
 		return self.decoder(self.encoder(img))
@@ -162,6 +164,7 @@ class AE(pl.LightningModule):
 		self.log("precision", self.val_precision(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
 		self.log("recall", self.val_recall(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
 		self.log("f1_score", self.val_f1score(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
+		self.log("auroc", self.val_auroc(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
 		# IMAGES
 		images = self.get_images_for_log(imgs[0:self.hparams.log_images], recon_imgs[0:self.hparams.log_images])
 		return {"images": images}

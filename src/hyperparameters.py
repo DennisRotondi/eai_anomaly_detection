@@ -6,6 +6,7 @@ class Hparams:
     #dataset_dir: str = "../data_v1" # LEO
     dataset_dir: str = "dataset/mvtec_anomaly_detection" # DENNIS
     img_size: int = 256  # size of image
+    img_channels: int = 3
     batch_size: int = 256  # size of the batches
     n_cpu: int = 8  # number of cpu threads to use for the dataloaders
     pin_memory: bool = False # parameter to pin memory in dataloader

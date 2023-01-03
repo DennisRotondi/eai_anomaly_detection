@@ -3,7 +3,7 @@ from PIL import Image
 from torchvision import transforms
 from torch.utils.data import DataLoader, Dataset
 import pytorch_lightning as pl
-from tqdm.auto import tqdm
+from tqdm import tqdm
 
 class MVTec_Dataset(Dataset):
 	def __init__(self, dataset_dir: str, train_or_test: str, hparams):
@@ -32,8 +32,8 @@ class MVTec_Dataset(Dataset):
 		for f in [os.path.join(self.dataset_dir, e) for e in os.listdir(self.dataset_dir)]:
 			if os.path.isdir(f):
 				class_dir_list.append(f)
-		print(f"Loading {self.train_or_test} dataset.")
-		for f in tqdm(class_dir_list, desc = f"{self.train_or_test} dataset", position=0, leave=None):
+		print(f"Loading {self.train_or_test} dataset...")
+		for f in tqdm(class_dir_list, desc = f"{self.train_or_test} dataset", position=1, leave = True):
 			class_obj = f.split("/")[-1]
 			for dir in os.listdir(f):
 				if dir==self.train_or_test:
