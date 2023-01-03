@@ -3,7 +3,9 @@ from dataclasses import dataclass
 @dataclass
 class Hparams:
     # dataloader params
-    dataset_dir: str = "dataset/mvtec_anomaly_detection"
+    #dataset_dir: str = "../data_v1" # LEO
+    dataset_dir: str = "dataset/mvtec_anomaly_detection" # DENNIS
+    data_loading_strategy: str = "normal" # different strategy depending on how the dataset is structured
     img_size: int = 256  # size of image
     batch_size: int = 256  # size of the batches
     n_cpu: int = 8  # number of cpu threads to use for the dataloaders
@@ -20,3 +22,5 @@ class Hparams:
     w_std: int = +1 # this param could be 1 (sum std) -1 (sub std)
     wd: float = 1e-6 # weight decay for the contractive strategy
     noise: float = 0.1 # noise factor in the image for denoising strategy
+    # logging params
+    log_image_each_epoch: int = 2 # epochs interval we wait to log images   

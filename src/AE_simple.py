@@ -111,6 +111,7 @@ class AE(pl.LightningModule):
 		imgs = batch['img']
 		recon = self(imgs)
 		loss = self.loss_function(recon, imgs)
+		# LOSS
 		self.log_dict(loss)
 		# ANOMALY SCORE --> mean and standard deviation
 		# in addition to the loss we're going to compute the "anomaly score", that's not necessarily the same measure of the loss.
@@ -166,8 +167,8 @@ class AE(pl.LightningModule):
 		return {"images": images}
 
 	def validation_epoch_end(self, outputs):
-		bidx = random.randrange(100) % len(outputs)
-		images = outputs[bidx]["images"]
-		self.logger.experiment.log(
-			{f"images": images}
-		)
+		if self.global_step%self.hparams.log_image_each_epoch==0:
+			# we randomly select one batch index
+			bidx = random.randrange(100) % len(outputs)
+			images = outputs[bidx]["images"]
+			self.logger.experiment.log({f"images": images})
