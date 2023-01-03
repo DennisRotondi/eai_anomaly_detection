@@ -1,14 +1,12 @@
-from typing import Any, Union, List, Optional
 import os
-from tqdm import tqdm
-import torch
 from PIL import Image
 from torchvision import transforms
 from torch.utils.data import DataLoader, Dataset
 import pytorch_lightning as pl
+from tqdm.auto import tqdm
 
 class MVTec_Dataset(Dataset):
-	def __init__(self, dataset_dir: str, train_or_test: str, hparams: Any):
+	def __init__(self, dataset_dir: str, train_or_test: str, hparams):
 		self.data = list() # list of images with their class and label (0 normal, 1 anomalous)
 		self.train_or_test = train_or_test
 		self.dataset_dir = dataset_dir
@@ -27,50 +25,24 @@ class MVTec_Dataset(Dataset):
 			transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
 		])
 		self.make_data()
-
-	def make_data(self):
-		if self.hparams.data_loading_strategy=="normal":
-			self.make_data_1()
-		else:
-			self.make_data_2()
 	
-	def make_data_1(self):
+	def make_data(self):
 		# this function read the fresh downloaded dataset and make it ready for the training
 		class_dir_list = list()
 		for f in [os.path.join(self.dataset_dir, e) for e in os.listdir(self.dataset_dir)]:
 			if os.path.isdir(f):
 				class_dir_list.append(f)
-		for f in class_dir_list:
+		print(f"Loading {self.train_or_test} dataset.")
+		for f in tqdm(class_dir_list, desc = f"{self.train_or_test} dataset", position=0, leave=None):
 			class_obj = f.split("/")[-1]
-			print("["+class_obj+"]")
 			for dir in os.listdir(f):
 				if dir==self.train_or_test:
-					print("## "+dir+" ##")
 					current_dir = os.path.join(f,dir)
 					for t in os.listdir(current_dir):
 						imgs = os.path.join(current_dir,t)
 						label = 1 if t=="good" else 0
-						for image_path in tqdm([os.path.join(imgs,e) for e in os.listdir(imgs)]):
+						for image_path in  tqdm([os.path.join(imgs,e) for e in os.listdir(imgs)], desc = class_obj, position=0, leave = False):
 							img = self.transform(Image.open(image_path).convert('RGB'))
-							self.data.append({"img" : img, "class_obj": class_obj, "label" : label})
-	
-	def make_data_2(self):
-		"""
-		We tried this additional data extraction strategy in order to make data.setup() more efficient!
-        We thought the slowness of the operation was induced by the many folder accesses and as a result
-        we the dataset folder structure is been modified. NO IMPROVEMENTS were achieved. 
-        The lack of efficiency comes from the image transformations!
-		"""
-		for dir in os.listdir(self.dataset_dir):
-			if dir==self.train_or_test:
-				current_dir = os.path.join(self.dataset_dir, dir)
-				for t in os.listdir(current_dir):
-					label = 1 if t=="good" else 0
-					imgs = os.path.join(current_dir,t)
-					print("["+imgs.split("/")[-2]+"/"+imgs.split("/")[-1]+"]")
-					for image_path in tqdm([os.path.join(imgs,e) for e in os.listdir(imgs)]):
-							img = self.transform(Image.open(image_path).convert('RGB'))
-							class_obj = (image_path.split("/")[-1]).split("_")[0]
 							self.data.append({"img" : img, "class_obj": class_obj, "label" : label})
 	
 	def __len__(self):
@@ -84,7 +56,7 @@ class MVTec_DataModule(pl.LightningDataModule):
 		super().__init__()
 		self.save_hyperparameters(hparams)
 
-	def setup(self, stage: Optional[str] = None) -> None:
+	def setup(self, stage=None):
 		# TRAIN
 		self.data_train = MVTec_Dataset(self.hparams.dataset_dir, "train", self.hparams)
 		# TEST
