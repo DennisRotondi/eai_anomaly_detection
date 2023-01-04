@@ -1,3 +1,4 @@
+from collections import Counter
 import torch
 from torch import optim, nn
 import torch.nn.functional as F
@@ -120,6 +121,20 @@ class AE(pl.LightningModule):
 		anomaly_scores = self.anomaly_score(imgs, recon)
 		a_mean = anomaly_scores.mean().detach().cpu().numpy()
 		a_std = anomaly_scores.std().detach().cpu().numpy()
+		
+		##################################################################################################################
+		# OBJECTS ANOMALY SCORES
+		class_objs = batch['class_obj'] # class objects list within the batch (dim=batch_size)
+		class_counter = Counter(class_objs)
+		for c in list(class_counter):
+			index_list = []
+			for i,obj in enumerate(class_objs):
+				if obj==c:
+					index_list.append(i)
+			anomaly_sum = (np.take(anomaly_scores.detach().cpu().numpy(), np.array(index_list)).sum()) / class_counter[c]	
+			self.log("anomaly."+c, anomaly_sum, on_step=False, on_epoch=True, prog_bar=True)
+        ##################################################################################################################
+   
 		return {'loss': loss['loss'], 'anom': a_mean, 'a_std': a_std}
 
 	def training_epoch_end(self, outputs):

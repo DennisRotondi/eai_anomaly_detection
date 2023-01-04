@@ -6,7 +6,7 @@ from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.callbacks import ModelCheckpoint
 # this function encapsulate the stuff (logger, callbacks, parameters)
 # needed to perform the pytorch lightning training for each model
-def train_model(data, model, experiment_name, patience, metric_to_monitor, mode, epochs):
+def train_model(data, model, batch_size, experiment_name, patience, metric_to_monitor, mode, epochs):
     logger =  WandbLogger()
     logger.experiment.watch(model, log = None, log_freq = 100000)
     # To limit overfitting and avoid much more epochs than needed to complete
@@ -21,7 +21,7 @@ def train_model(data, model, experiment_name, patience, metric_to_monitor, mode,
     checkpoint_callback = ModelCheckpoint(
         save_top_k=1, monitor=metric_to_monitor, mode=mode, dirpath="models",
         filename=experiment_name +
-        "-{epoch:02d}-{f1_score:.4f}", verbose=True)
+        "-{epoch:02d}-{auroc:.4f}-"+"batch="+str(batch_size), verbose=True)
     # the trainer collect all the useful informations so far for the training
     n_gpus = 1 if torch.cuda.is_available() else 0
     trainer = pl.Trainer(

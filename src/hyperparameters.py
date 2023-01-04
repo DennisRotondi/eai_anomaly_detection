@@ -13,7 +13,6 @@ class Hparams:
     # autoencoder params
     latent_size: int = 512 # size of autoencoder latent space
     lr: float = 1e-3
-    log_images: int = 4 # how many images to log each time
     threshold: float = 0
     t_weight: float = 0.8 # how much weight the new threshold wrt the old
     loss_weight: float = 10 # how much weight the reconstruction loss between two pixels 
@@ -23,4 +22,5 @@ class Hparams:
     wd: float = 1e-6 # weight decay for the contractive strategy
     noise: float = 0.1 # noise factor in the image for denoising strategy
     # logging params
+    log_images: int = 4 # how many images to log each time
     log_image_each_epoch: int = 2 # epochs interval we wait to log images   
