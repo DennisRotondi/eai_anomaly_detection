@@ -143,7 +143,7 @@ class AE(pl.LightningModule):
 		
 		##################################################################################################################
 		# OBJECTS ANOMALY SCORES
-		class_objs = batch['class_obj'] # class objects list within the batch (dim=batch_size)
+		class_objs = [MVTec_DataModule.id2c[i] for i in batch['class_obj'].tolist()] # class objects list within the batch (dim=batch_size)
 		class_counter = Counter(class_objs)
 		for c in list(class_counter):
 			index_list = []
@@ -151,7 +151,7 @@ class AE(pl.LightningModule):
 				if obj==c:
 					index_list.append(i)
 			anomaly_sum = (np.take(anomaly_scores.detach().cpu().numpy(), np.array(index_list)).sum()) / class_counter[c]	
-			self.log("anomaly."+c, anomaly_sum, on_step=False, on_epoch=True, prog_bar=True)
+			self.log("anomaly."+c, anomaly_sum, on_step=False, on_epoch=True, prog_bar=False)
         ##################################################################################################################
    
 		return {'loss': loss['loss'], 'anom': a_mean, 'a_std': a_std}

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 class Hparams:
     # dataloader params
     #dataset_dir: str = "../data_v1" # LEO
-    dataset_dir: str = "dataset/mvtec_anomaly_detection_test" # DENNIS
+    dataset_dir: str = "dataset/mvtec_anomaly_detection" # DENNIS
     img_size: int = 256  # size of image
     img_channels: int = 3
     batch_size: int = 256  # size of the batches
