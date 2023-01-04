@@ -11,7 +11,7 @@ class Hparams:
     n_cpu: int = 8  # number of cpu threads to use for the dataloaders
     pin_memory: bool = False # parameter to pin memory in dataloader
     # autoencoder params
-    latent_size: int = 512 # size of autoencoder latent space
+    latent_size: int = 128 # size of autoencoder latent space
     lr: float = 1e-3
     threshold: float = 0
     t_weight: float = 0.8 # how much weight the new threshold wrt the old

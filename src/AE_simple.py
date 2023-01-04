@@ -62,7 +62,10 @@ class AE(pl.LightningModule):
 		self.save_hyperparameters(hparams)
 		self.encoder = Encoder(self.hparams.latent_size, self.hparams.img_channels)
 		self.decoder = Decoder(self.hparams.latent_size, self.hparams.img_channels)
-		
+		# https://pytorch.org/docs/master/generated/torch.nn.Module.html?highlight=apply#torch.nn.Module.apply
+		self.encoder.apply(self.weights_init_normal)
+		self.decoder.apply(self.weights_init_normal)
+
 		self.threshold = self.hparams.threshold # find a way to compute the "ideal" one!
 		self.avg_anomaly = 0 # average anomaly score
 		self.std_anomaly = 0 # standard deviation anomaly score
@@ -71,6 +74,18 @@ class AE(pl.LightningModule):
 		self.val_recall = Recall(task = 'binary', num_classes = 2, average = 'macro')
 		self.val_f1score = F1Score(task = 'binary', num_classes = 2, average = 'macro')
 		self.val_auroc = BinaryAUROC()
+
+	# to apply the weights initialization of cycle-gan paper
+	# it ensures better performances 
+	def weights_init_normal(self, m: nn.Module):
+		classname = m.__class__.__name__
+		if classname.find("Conv") != -1 or classname.find("Linear") != -1:
+			torch.nn.init.normal_(m.weight.data, 0.0, 0.02)
+			if hasattr(m, "bias") and m.bias is not None:
+				torch.nn.init.constant_(m.bias.data, 0.0)
+		elif classname.find("Norm2d") != -1:
+			torch.nn.init.normal_(m.weight.data, 1.0, 0.02)
+			torch.nn.init.constant_(m.bias.data, 0.0)
 
 	def forward(self, img):
 		return self.decoder(self.encoder(img))
@@ -88,7 +103,9 @@ class AE(pl.LightningModule):
 
 		return (torch.abs(recon-img).sum(-1)) #/ 393216
 	
-	def anomaly_prediction(self, img, recon):
+	def anomaly_prediction(self, img, recon=None):
+		if recon is None:
+			recon = self(img)
 		anomaly_score = self.anomaly_score(img, recon)
 		ris = (anomaly_score > self.threshold).long()
 		return ris
