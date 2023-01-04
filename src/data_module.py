@@ -43,7 +43,7 @@ class MVTec_Dataset(Dataset):
 						label = 1 if t=="good" else 0
 						for image_path in  tqdm([os.path.join(imgs,e) for e in os.listdir(imgs)], desc = class_obj, position=0, leave = False):
 							img = self.transform(Image.open(image_path).convert('RGB'))
-							self.data.append({"img" : img, "class_obj": class_obj, "label" : label})
+							self.data.append({"img" : img, "class_obj": MVTec_DataModule.c2id[class_obj], "label" : label})
 	
 	def __len__(self):
 		return len(self.data)
@@ -52,6 +52,11 @@ class MVTec_Dataset(Dataset):
 		return self.data[idx]
 
 class MVTec_DataModule(pl.LightningDataModule):
+	# static objs
+	c2id = {'hazelnut': 0, 'capsule': 1, 'pill': 2, 'tile': 3, 'screw': 4, 'wood': 5, 'zipper': 6, 
+	'metal_nut': 7, 'transistor': 8, 'carpet': 9, 'bottle': 10, 'grid': 11, 'toothbrush': 12, 'leather': 13, 'cable': 14}
+	id2c = {0: 'hazelnut', 1: 'capsule', 2: 'pill', 3: 'tile', 4: 'screw', 5: 'wood', 6: 'zipper', 
+	7: 'metal_nut', 8: 'transistor', 9: 'carpet', 10: 'bottle', 11: 'grid', 12: 'toothbrush', 13: 'leather', 14: 'cable'}
 	def __init__(self, hparams: dict):
 		super().__init__()
 		self.save_hyperparameters(hparams)

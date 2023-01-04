@@ -63,8 +63,9 @@ class AE(pl.LightningModule):
 		self.encoder = Encoder(self.hparams.latent_size, self.hparams.img_channels)
 		self.decoder = Decoder(self.hparams.latent_size, self.hparams.img_channels)
 		# https://pytorch.org/docs/master/generated/torch.nn.Module.html?highlight=apply#torch.nn.Module.apply
-		self.encoder.apply(self.weights_init_normal)
-		self.decoder.apply(self.weights_init_normal)
+		if self.hparams.normalization:
+			self.encoder.apply(self.weights_init_normal)
+			self.decoder.apply(self.weights_init_normal)
 
 		self.threshold = self.hparams.threshold # find a way to compute the "ideal" one!
 		self.avg_anomaly = 0 # average anomaly score
@@ -88,7 +89,8 @@ class AE(pl.LightningModule):
 			torch.nn.init.constant_(m.bias.data, 0.0)
 
 	def forward(self, img):
-		return self.decoder(self.encoder(img))
+		latent = self.encoder(img)
+		return self.decoder(latent), latent
 	
 	def anomaly_score(self, img, recon): # (batch, 3, 256, 256)
 		"""
@@ -105,14 +107,13 @@ class AE(pl.LightningModule):
 	
 	def anomaly_prediction(self, img, recon=None):
 		if recon is None:
-			recon = self(img)
+			recon, _ = self(img)
 		anomaly_score = self.anomaly_score(img, recon)
 		ris = (anomaly_score > self.threshold).long()
 		return ris
 
 	def configure_optimizers(self):
-		# note wd = 0 in this simplest version (baseline)
-		optimizer = optim.Adam(self.parameters(), lr=self.hparams.lr, eps=self.hparams.adam_eps, weight_decay=0)
+		optimizer = optim.Adam(self.parameters(), lr=self.hparams.lr, eps=self.hparams.adam_eps, weight_decay=self.hparams.wd)
 		reduce_lr_on_plateau = ReduceLROnPlateau(optimizer, mode='min',verbose=True, min_lr=self.hparams.min_lr)
 		return {
 			"optimizer": optimizer,
@@ -123,14 +124,15 @@ class AE(pl.LightningModule):
 			},
 		}
 
-	def loss_function(self,recon_x, x):
+	def loss_function(self,recon_x, x, latent):
 		""" loss function is mse, 100* (possible hp) is to enlarge the recon diff """
-		return {"loss": self.hparams.loss_weight*F.mse_loss(recon_x, x, reduction='sum')}
+		# note we are using only mse, no contractive effort in the simplest version
+		return {"loss": self.hparams.loss_weight*F.mse_loss(recon_x[1], x, reduction=self.hparams.reduction)}
 
 	def training_step(self, batch, batch_idx):
 		imgs = batch['img']
-		recon = self(imgs)
-		loss = self.loss_function(recon, imgs)
+		recon, latent = self(imgs)
+		loss = self.loss_function(recon, imgs, latent)
 		# LOSS
 		self.log_dict(loss)
 		# ANOMALY SCORE --> mean and standard deviation
@@ -188,9 +190,9 @@ class AE(pl.LightningModule):
 
 	def validation_step(self, batch, batch_idx):
 		imgs = batch['img']
-		recon_imgs = self(imgs)
+		recon_imgs, latent = self(imgs)
 		# LOSS
-		self.log("val_loss", self.loss_function(recon_imgs, imgs)["loss"], on_step=False, on_epoch=True, batch_size=imgs.shape[0])
+		self.log("val_loss", self.loss_function(recon_imgs, imgs, latent)["loss"], on_step=False, on_epoch=True, batch_size=imgs.shape[0])
 		# RECALL, PRECISION, F1 SCORE
 		pred = self.anomaly_prediction(imgs, recon_imgs)
 		self.log("precision", self.val_precision(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
