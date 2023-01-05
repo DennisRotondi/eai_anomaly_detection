@@ -14,10 +14,9 @@ class CODE_AE(AE):
 			img = img + torch.rand_like(img)*self.hparams.noise
 			# we need to fix the values in the range [-1,1]
 			img = img.clamp(min=-1, max=1)
-		latent = self.encoder(img)
-		return self.decoder(latent), latent
+		return self.decoder(self.encoder(img))
 
-	def loss_function(self,recon_x, x, latent):
+	def loss_function(self,recon_x, x):
 		""" loss function is mse + Frobenius norm of 
 		the jacobian matrix (of the Encoder w.r.t. to the inputs)   """
 		# we can choose if apply contraction strategy or not

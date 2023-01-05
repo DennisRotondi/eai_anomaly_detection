@@ -29,12 +29,12 @@ def deconv_block(in_features, out_features, kernel_size, stride, padding, bias, 
 	return layer
 
 class Encoder(nn.Module):
-	def __init__(self, latent_dim, channels):
+	def __init__(self, latent_dim, channels, hparams):
 		super().__init__()
 		""" the input image is 3x256x256, this size allow to preserve the high res + still load all the dataset"""
 		self.convolutions = nn.Sequential(
-			*conv_block(channels, 16, kernel_size=4, stride=2, padding=1, bias=False, slope = 0.2, normalize=True),
-			*[m for mod in [conv_block(2**i, 2**(i+1), kernel_size=4, stride=2, padding=1, bias=False, slope = 0.2, normalize=True) \
+			*conv_block(channels, 16, kernel_size=4, stride=2, padding=1, bias=False, slope = hparams.slope, normalize=True),
+			*[m for mod in [conv_block(2**i, 2**(i+1), kernel_size=4, stride=2, padding=1, bias=False, slope = hparams.slope, normalize=True) \
 				for i in range(4,9)] for m in mod],
 			*conv_block(512, 1024, kernel_size=4, stride=1, padding=0, bias=False, slope = 0, normalize=False)
 		)
@@ -44,11 +44,11 @@ class Encoder(nn.Module):
 		return self.fc(self.convolutions(img).squeeze(-1).squeeze(-1))
 
 class Decoder(nn.Module):
-	def __init__(self, latent_dim, channels):
+	def __init__(self, latent_dim, channels, hparams):
 		super().__init__()
 		self.deconvolution = nn.Sequential(
-			*deconv_block(latent_dim, 1024, kernel_size=4, stride=1, padding=0, bias=False, slope = 0.2, normalize=True),
-			*[m for mod in [deconv_block(2**(i+1), 2**i, kernel_size=4, stride=2, padding=1, bias=False, slope = 0.2, normalize=True) \
+			*deconv_block(latent_dim, 1024, kernel_size=4, stride=1, padding=0, bias=False, slope = hparams.slope, normalize=True),
+			*[m for mod in [deconv_block(2**(i+1), 2**i, kernel_size=4, stride=2, padding=1, bias=False, slope = hparams.slope, normalize=True) \
 				for i in range(9,4,-1)] for m in mod],
 			*deconv_block(32, channels, kernel_size=4, stride=2, padding=1, bias=False, slope = 0, normalize=False))
 
@@ -60,16 +60,13 @@ class AE(pl.LightningModule):
 	def __init__(self, hparams):
 		super(AE, self).__init__()
 		self.save_hyperparameters(hparams)
-		self.encoder = Encoder(self.hparams.latent_size, self.hparams.img_channels)
-		self.decoder = Decoder(self.hparams.latent_size, self.hparams.img_channels)
+		self.encoder = Encoder(self.hparams.latent_size, self.hparams.img_channels, self.hparams)
+		self.decoder = Decoder(self.hparams.latent_size, self.hparams.img_channels, self.hparams)
 		# https://pytorch.org/docs/master/generated/torch.nn.Module.html?highlight=apply#torch.nn.Module.apply
 		if self.hparams.normalization:
 			self.encoder.apply(self.weights_init_normal)
 			self.decoder.apply(self.weights_init_normal)
-
-		self.threshold = self.hparams.threshold # find a way to compute the "ideal" one!
-		self.avg_anomaly = 0 # average anomaly score
-		self.std_anomaly = 0 # standard deviation anomaly score
+		self.threshold = self.hparams.threshold # there are different ways to compute the "ideal" one!
 
 		self.val_precision = Precision(task = 'binary', num_classes = 2, average = 'macro')
 		self.val_recall = Recall(task = 'binary', num_classes = 2, average = 'macro')
@@ -89,8 +86,7 @@ class AE(pl.LightningModule):
 			torch.nn.init.constant_(m.bias.data, 0.0)
 
 	def forward(self, img):
-		latent = self.encoder(img)
-		return self.decoder(latent), latent
+		return self.decoder(self.encoder(img))
 	
 	def anomaly_score(self, img, recon): # (batch, 3, 256, 256)
 		"""
@@ -98,16 +94,16 @@ class AE(pl.LightningModule):
 		maybe... since the values of images are between [-1, 1] the maximum distance
 		between two pixels is 2. So the maximum anomaly score that two images can obtain 
 		in our setting is 2x3x256x256 = 393216.
-		We normalize the result by dividing it by this value!
+		We could even normalize the result by dividing it by this value!
 		"""
+		# todo hparam switch to choose mse or structural  
 		recon = recon.view(recon.shape[0],-1)
 		img = img.view(img.shape[0],-1)
-
 		return (torch.abs(recon-img).sum(-1)) #/ 393216
 	
 	def anomaly_prediction(self, img, recon=None):
 		if recon is None:
-			recon, _ = self(img)
+			recon = self(img)
 		anomaly_score = self.anomaly_score(img, recon)
 		ris = (anomaly_score > self.threshold).long()
 		return ris
@@ -124,15 +120,20 @@ class AE(pl.LightningModule):
 			},
 		}
 
-	def loss_function(self,recon_x, x, latent):
+	def loss_function(self,recon_x, x):
 		""" loss function is mse, 100* (possible hp) is to enlarge the recon diff """
 		# note we are using only mse, no contractive effort in the simplest version
-		return {"loss": self.hparams.loss_weight*F.mse_loss(recon_x[1], x, reduction=self.hparams.reduction)}
+		loss = self.hparams.loss_weight*(recon_x-x)**2
+		if self.hparams.reduction == 'mean':
+			loss = loss.mean()
+		else:
+			loss = loss.sum()
+		return {"loss": loss}
 
 	def training_step(self, batch, batch_idx):
 		imgs = batch['img']
-		recon, latent = self(imgs)
-		loss = self.loss_function(recon, imgs, latent)
+		recon = self(imgs)
+		loss = self.loss_function(recon, imgs)
 		# LOSS
 		self.log_dict(loss)
 		# ANOMALY SCORE --> mean and standard deviation
@@ -190,9 +191,9 @@ class AE(pl.LightningModule):
 
 	def validation_step(self, batch, batch_idx):
 		imgs = batch['img']
-		recon_imgs, latent = self(imgs)
+		recon_imgs = self(imgs)
 		# LOSS
-		self.log("val_loss", self.loss_function(recon_imgs, imgs, latent)["loss"], on_step=False, on_epoch=True, batch_size=imgs.shape[0])
+		self.log("val_loss", self.loss_function(recon_imgs, imgs)["loss"], on_step=False, on_epoch=True, batch_size=imgs.shape[0])
 		# RECALL, PRECISION, F1 SCORE
 		pred = self.anomaly_prediction(imgs, recon_imgs)
 		self.log("precision", self.val_precision(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
