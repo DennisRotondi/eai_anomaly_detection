@@ -5,6 +5,8 @@ import torch.nn.functional as F
 from .data_module import MVTec_DataModule
 from torchmetrics import F1Score
 import numpy as np
+from torchmetrics.functional import structural_similarity_index_measure as SSIM
+from torchmetrics.functional import multiscale_structural_similarity_index_measure as MSSIM
 
 class Obj_classifer(nn.Module):
 	def __init__(self, latent_dim, out_classes, hparams):
@@ -48,21 +50,29 @@ class Mixer_AE(AE):
 			ris = (anomaly_score > self.threshold).long()
 		return ris
 	
-	def loss_function(self,recon_x, x, classes):	
-		loss = self.hparams.loss_weight*(recon_x-x['img'])**2
+	def loss_function(self,recon_x, x, classes):
+		log_dict = dict()	
+		if self.hparams.training_strategy == "mse":
+			loss = self.hparams.loss_weight*(recon_x-x['img'])**2
+		elif self.hparams.training_strategy == "ssim":
+			loss = SSIM(recon_x, x['img'], reduction=None)
+		else:
+			loss = MSSIM(recon_x, x['img'], reduction=None)
 		if self.hparams.contractive:
 			weights = torch.concat([param.view(-1) for param in self.encoder.parameters()])
 			jacobian_loss = self.hparams.lamb*weights.norm(p='fro')
 			loss = loss + jacobian_loss
+			log_dict["jacobian_loss"] = jacobian_loss
 		# here we compute the cross entropy prodiction for the classes
 		CE = self.hparams.cross_w*F.cross_entropy(classes, x["class_obj"])
-
+		log_dict["CE"] = CE
 		loss = loss +  CE
 		if self.hparams.reduction == 'mean':
 			loss = loss.mean()
 		else:
 			loss = loss.sum()
-		return {"loss": loss, "CE":CE}
+		log_dict["loss"] = loss
+		return log_dict
 
 	def training_step(self, batch, batch_idx):
 		imgs = batch['img']

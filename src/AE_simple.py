@@ -102,9 +102,9 @@ class AE(pl.LightningModule):
 			img = img.view(img.shape[0],-1)
 			return (torch.abs(recon-img).sum(-1)) #/ 393216
 		elif self.hparams.anomaly_stategy == "ssim":
-			return SSIM(img, recon, reduction=None)
+			return SSIM( recon, img, reduction=None)
 		else:
-			return MSSIM(img, recon, reduction=None)
+			return MSSIM(recon, img, reduction=None)
 	
 	def anomaly_prediction(self, img, recon=None):
 		if recon is None:

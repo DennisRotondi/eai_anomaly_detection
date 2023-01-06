@@ -27,10 +27,12 @@ class Hparams:
     lamb: float = 1e-4 # controls the relative importance of the Jacobian (contractive) loss.
     reduction: str = "sum" # "mean" or "sum" according to the reduction loss strategy
     slope: float = 0.2 # slope for the leaky relu in convolutions
+    # mixert stuf
     mixer_ae: bool = True # if you want to *treshold* with the mixer strategy or not
     dropout: float = 0.2 # dropout for the mixer classifier
-    cross_w: float = 100 # the importance to give to the classification task wrt reconstruction one
+    cross_w: float = 10 # the importance to give to the classification task wrt reconstruction one
     anomaly_stategy: str = "mssim" # "mssim", "mse", "ssim"
+    training_strategy: str = "ssim"    # "mssim", "mse", "ssim"
     # logging params
     log_images: int = 4 # how many images to log each time
     log_image_each_epoch: int = 1 # epochs interval we wait to log images   
