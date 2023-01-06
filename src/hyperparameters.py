@@ -4,7 +4,7 @@ from dataclasses import dataclass
 class Hparams:
     # dataloader params
     #dataset_dir: str = "../data_v1" # LEO
-    dataset_dir: str = "dataset/mvtec_anomaly_detection_test" # DENNIS
+    dataset_dir: str = "dataset/mvtec_anomaly_detection" # DENNIS
     img_size: int = 256  # size of image
     img_channels: int = 3
     batch_size: int = 256  # size of the batches
@@ -29,7 +29,7 @@ class Hparams:
     slope: float = 0.2 # slope for the leaky relu in convolutions
     mixer_ae: bool = True # if you want to *treshold* with the mixer strategy or not
     dropout: float = 0.2 # dropout for the mixer classifier
-    cross_w: float = 0.5 # the importance to give to the classification task wrt reconstruction one
+    cross_w: float = 100 # the importance to give to the classification task wrt reconstruction one
     # logging params
     log_images: int = 4 # how many images to log each time
     log_image_each_epoch: int = 1 # epochs interval we wait to log images   

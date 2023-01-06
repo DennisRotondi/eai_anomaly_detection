@@ -77,14 +77,15 @@ class Mixer_AE(AE):
 		all_mean = dict()
 		for k in self.thresholds.keys():
 			all_k = anomaly_scores[batch["class_obj"]==k]
-			# print(all_k)
-			# we skip if nothing to log
 			if all_k.nelement() == 0:
+				# we skip if nothing to log
 				continue
 			all_mean[k] = all_k.mean().detach().cpu().item()
-			all_std[k] = all_k.std().detach().cpu().item()
 			self.log("anomaly_avg."+MVTec_DataModule.id2c[k], all_mean[k], on_step=False, on_epoch=True, prog_bar=False)
-			self.log("anomaly_std."+MVTec_DataModule.id2c[k], all_std[k], on_step=False, on_epoch=True, prog_bar=False)
+			if all_k.nelement()>1:
+				# std with only one element is not defined in pytorch (nan)
+				all_std[k] = all_k.std().detach().cpu().item()
+				self.log("anomaly_std."+MVTec_DataModule.id2c[k], all_std[k], on_step=False, on_epoch=True, prog_bar=False)
 		return {'loss': loss['loss'], 'anom': all_mean, 'a_std': all_std}
 
 	def training_epoch_end(self, outputs):
@@ -92,8 +93,6 @@ class Mixer_AE(AE):
 		all_tre = list()
 		for k in self.thresholds.keys():
 			a = np.array([x['anom'][k] for x in outputs if x['anom'].get(k,None) is not None]) 
-			if a.isnan():
-				print(a)
 			a_std = np.array([x['a_std'][k] for x in outputs if x['a_std'].get(k,None) is not None]) 
 			avg_anomalyk = a.mean()
 			std_anomalyk = a_std.mean()
