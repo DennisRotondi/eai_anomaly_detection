@@ -10,7 +10,10 @@ import pytorch_lightning as pl
 from .data_module import MVTec_DataModule
 import random
 from torchmetrics import Recall, Precision, F1Score
+from torchmetrics.functional import structural_similarity_index_measure as SSIM
+from torchmetrics.functional import multiscale_structural_similarity_index_measure as MSSIM
 from torchmetrics.classification import BinaryAUROC
+
 
 def conv_block(in_features, out_features, kernel_size, stride, padding, bias, slope, normalize = True, affine = True):
 	layer = [nn.Conv2d(in_features, out_features, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias)]
@@ -90,16 +93,18 @@ class AE(pl.LightningModule):
 	
 	def anomaly_score(self, img, recon): # (batch, 3, 256, 256)
 		"""
-		find a way to have this measure to output a value between 0 and 1!
-		maybe... since the values of images are between [-1, 1] the maximum distance
-		between two pixels is 2. So the maximum anomaly score that two images can obtain 
-		in our setting is 2x3x256x256 = 393216.
+		The maximum anomaly score with MSE that two images 
+		can obtain in our setting is 2x3x256x256 = 393216.
 		We could even normalize the result by dividing it by this value!
 		"""
-		# todo hparam switch to choose mse or structural  
-		recon = recon.view(recon.shape[0],-1)
-		img = img.view(img.shape[0],-1)
-		return (torch.abs(recon-img).sum(-1)) #/ 393216
+		if self.hparams.anomaly_stategy == "mse":
+			recon = recon.view(recon.shape[0],-1)
+			img = img.view(img.shape[0],-1)
+			return (torch.abs(recon-img).sum(-1)) #/ 393216
+		elif self.hparams.anomaly_stategy == "ssim":
+			return SSIM(img, recon, reduction=None)
+		else:
+			return MSSIM(img, recon, reduction=None)
 	
 	def anomaly_prediction(self, img, recon=None):
 		if recon is None:

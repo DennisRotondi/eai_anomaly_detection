@@ -7,7 +7,7 @@ class Hparams:
     dataset_dir: str = "dataset/mvtec_anomaly_detection" # DENNIS
     img_size: int = 256  # size of image
     img_channels: int = 3
-    batch_size: int = 256  # size of the batches
+    batch_size: int = 128  # size of the batches
     n_cpu: int = 8  # number of cpu threads to use for the dataloaders
     pin_memory: bool = False # parameter to pin memory in dataloader
     # autoencoder params
@@ -30,6 +30,7 @@ class Hparams:
     mixer_ae: bool = True # if you want to *treshold* with the mixer strategy or not
     dropout: float = 0.2 # dropout for the mixer classifier
     cross_w: float = 100 # the importance to give to the classification task wrt reconstruction one
+    anomaly_stategy: str = "mssim" # "mssim", "mse", "ssim"
     # logging params
     log_images: int = 4 # how many images to log each time
     log_image_each_epoch: int = 1 # epochs interval we wait to log images   
