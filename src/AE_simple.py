@@ -18,7 +18,7 @@ from torchmetrics.classification import BinaryAUROC
 def conv_block(in_features, out_features, kernel_size, stride, padding, bias, slope, normalize = True, affine = True):
 	layer = [nn.Conv2d(in_features, out_features, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias)]
 	if normalize:
-		layer += [nn.InstanceNorm2d(out_features, affine=affine)]
+		layer += [nn.BatchNorm2d(out_features, affine=affine)]
 	if slope != 0:
 		layer += [nn.LeakyReLU(slope, inplace = True)]
 	return layer

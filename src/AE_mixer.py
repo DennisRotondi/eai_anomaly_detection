@@ -13,10 +13,16 @@ class Obj_classifer(nn.Module):
     def __init__(self, latent_dim, out_classes, hparams):
         super().__init__()
         self.classifier = nn.Sequential(
-            nn.Linear(latent_dim,latent_dim//2),
+            nn.Linear(latent_dim,latent_dim-10),
             nn.ReLU(inplace=True),
             nn.Dropout(hparams.dropout),
-            nn.Linear(latent_dim//2, out_classes),
+            nn.Linear(latent_dim-10,latent_dim-20),
+            nn.ReLU(inplace=True),
+            nn.Dropout(hparams.dropout),
+            nn.Linear(latent_dim-20,latent_dim-30),
+            nn.ReLU(inplace=True),
+            nn.Dropout(hparams.dropout),
+            nn.Linear(latent_dim-30, out_classes),
             nn.ReLU(inplace=True)
         )
     def forward(self, latent):
@@ -70,6 +76,10 @@ class Mixer_AE(AE):
             classes = torch.argmax(classes, dim=-1).tolist() # these are the predicted classes
             threshold_idx = [self.hparams.thresholds[i] for i in classes] 
             ris = (anomaly_score > torch.tensor(threshold_idx, device = self.device)).long()
+        # if self.hparams.mixer_ae:
+        #     classes = torch.argmax(classes, dim=-1).tolist() # these are the predicted classe
+        #     threshold_idx = [self.hparams.thresholds[i] for i in batch["class_obj"].tolist()] 
+        #     ris = (anomaly_score > torch.tensor(threshold_idx, device = self.device)).long()
         else: # we have the possibility of not using the MIXER capability
             ris = (anomaly_score > self.hparams.threshold).long()
         return ris
