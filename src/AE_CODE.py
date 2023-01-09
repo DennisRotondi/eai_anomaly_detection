@@ -1,8 +1,7 @@
 import torch
-from torch import optim
-from torch.optim.lr_scheduler import ReduceLROnPlateau
 from .AE_simple import AE
-import torch.nn.functional as F
+from torchmetrics.functional import structural_similarity_index_measure as SSIM
+from torchmetrics.functional import multiscale_structural_similarity_index_measure as MSSIM
 
 class CODE_AE(AE):
 	def __init__(self, hparams):
@@ -19,8 +18,12 @@ class CODE_AE(AE):
 	def loss_function(self,recon_x, x):
 		""" loss function is mse + Frobenius norm of 
 		the jacobian matrix (of the Encoder w.r.t. to the inputs)   """
-		# we can choose if apply contraction strategy or not
-		loss = self.hparams.loss_weight*(recon_x-x)**2
+		if self.hparams.training_strategy == "mse":
+			loss = self.hparams.loss_weight*(recon_x-x)**2
+		elif self.hparams.training_strategy == "ssim":
+			loss = SSIM(recon_x, x, data_range=2.0, k1=0.01, k2=0.03, reduction=None)
+		else:
+			loss = MSSIM(recon_x, x, data_range=2.0, k1=0.01, k2=0.03, reduction=None)
 		if self.hparams.contractive:
 			# https://agustinus.kristia.de/techblog/2016/12/05/contractive-autoencoder/
 			# https://github.com/AlexPasqua/Autoencoders

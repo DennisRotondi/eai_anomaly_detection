@@ -11,7 +11,7 @@ class MVTec_Dataset(Dataset):
 		self.train_or_test = train_or_test
 		self.dataset_dir = dataset_dir
 		self.hparams = hparams
-		self.transform = transforms.Compose([ # classica trasformazione per immagini
+		transforms_list = [ 
 			transforms.Resize((hparams.img_size, hparams.img_size)),
 			# Converts a PIL Image or numpy.ndarray (H x W x C) in the range [0, 255] 
 			# to a torch.FloatTensor of shape (C x H x W) in the range [0.0, 1.0]
@@ -23,7 +23,13 @@ class MVTec_Dataset(Dataset):
 			# the maximum value of 1 will be converted to (1-0.5)/0.5=1.
 			# https://discuss.pytorch.org/t/understanding-transform-normalize/21730
 			transforms.Normalize(mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5))
-		])
+		]
+		if self.hparams.training_strategy!="mse" or self.hparams.anomaly_strategy!="mse":
+			transforms_list.insert(1,transforms.Grayscale()) # needed for the use of structural losses
+		if self.hparams.augmentation: # a slightly image augmentation
+				transforms_list.insert(1,transforms.RandomVerticalFlip(0.3))
+				transforms_list.insert(1,transforms.RandomHorizontalFlip(0.3))
+		self.transform = transforms.Compose(transforms_list)
 		self.make_data()
 	
 	def make_data(self):

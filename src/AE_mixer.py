@@ -8,6 +8,7 @@ import numpy as np
 from torchmetrics.functional import structural_similarity_index_measure as SSIM
 from torchmetrics.functional import multiscale_structural_similarity_index_measure as MSSIM
 
+# CLASSIFIER
 class Obj_classifer(nn.Module):
 	def __init__(self, latent_dim, out_classes, hparams):
 		super().__init__()
@@ -27,10 +28,11 @@ class Mixer_AE(AE):
 		self.classifier = Obj_classifer(self.hparams.latent_size, self.hparams.obj_classes, self.hparams)
 		# if you want to predict using different tresholds you need to store 
 		# different tresholds. If you prefer not then you can average all of them.
-		self.thresholds = {a: self.threshold for a in MVTec_DataModule.id2c.keys()}
-		## metric to log the classification problem
+		self.thresholds = {a : self.hparams.threshold for a in MVTec_DataModule.id2c.keys()}
+		# metric to log the classification problem
 		self.val_f1score_classes = F1Score(task = 'multiclass', num_classes = self.hparams.obj_classes, average = 'macro')
-	# in what follow we implement optionally the Contractive and Denoising behaviour	
+	
+ 	# in what follow we implement optionally the CONTRACTIVE and DENOISING behaviour	
 	def forward(self, img):
 		if self.hparams.noise > 0:
 			img = img + torch.rand_like(img)*self.hparams.noise
@@ -38,41 +40,43 @@ class Mixer_AE(AE):
 		latent = self.encoder(img)
 		return self.decoder(latent), self.classifier(latent)
 	
+	# here is encapsulated the prediction logic of the MIXER.
 	def anomaly_prediction(self, img, recon = None, classes = None):
 		if recon is None:
 			recon, classes = self(img)
 		anomaly_score = self.anomaly_score(img, recon)
 		if self.hparams.mixer_ae:
-			classes = torch.argmax(classes,dim=-1).tolist()
-			idx = [self.thresholds[i] for i in classes]
-			ris = (anomaly_score > torch.tensor(idx, device = self.device)).long()
-		else:
-			ris = (anomaly_score > self.threshold).long()
+			classes = torch.argmax(classes, dim=-1).tolist() # these are the predicted classes
+			threshold_idx = [self.thresholds[i] for i in classes] 
+			ris = (anomaly_score > torch.tensor(threshold_idx, device = self.device)).long()
+		else: # we have the possibility of not using the MIXER capability
+			ris = (anomaly_score > self.hparams.threshold).long()
 		return ris
 	
 	def loss_function(self,recon_x, x, classes):
-		log_dict = dict()	
+		loss_dict = dict()	
 		if self.hparams.training_strategy == "mse":
 			loss = self.hparams.loss_weight*(recon_x-x['img'])**2
 		elif self.hparams.training_strategy == "ssim":
-			loss = SSIM(recon_x, x['img'], reduction=None)
+			loss = SSIM(recon_x, x['img'], data_range=2.0, k1=0.01, k2=0.03, reduction=None)
 		else:
-			loss = MSSIM(recon_x, x['img'], reduction=None)
+			loss = MSSIM(recon_x, x['img'], data_range=2.0, k1=0.01, k2=0.03, reduction=None)
 		if self.hparams.contractive:
 			weights = torch.concat([param.view(-1) for param in self.encoder.parameters()])
 			jacobian_loss = self.hparams.lamb*weights.norm(p='fro')
 			loss = loss + jacobian_loss
-			log_dict["jacobian_loss"] = jacobian_loss
+			loss_dict["jacobian_loss"] = jacobian_loss
+
 		# here we compute the cross entropy prodiction for the classes
-		CE = self.hparams.cross_w*F.cross_entropy(classes, x["class_obj"])
-		log_dict["CE"] = CE
-		loss = loss +  CE
+		cross_entropy_loss = self.hparams.cross_w*F.cross_entropy(classes, x["class_obj"])
+		loss_dict["cross_entropy_loss"] = cross_entropy_loss
+		loss = loss +  cross_entropy_loss
 		if self.hparams.reduction == 'mean':
 			loss = loss.mean()
 		else:
 			loss = loss.sum()
-		log_dict["loss"] = loss
-		return log_dict
+		loss_dict["loss"] = loss
+		return loss_dict
 
 	def training_step(self, batch, batch_idx):
 		imgs = batch['img']
@@ -85,34 +89,32 @@ class Mixer_AE(AE):
 		# print(anomaly_scores.shape)
 		all_std = dict()
 		all_mean = dict()
-		for k in self.thresholds.keys():
+		for k in self.thresholds.keys(): # for each class
 			all_k = anomaly_scores[batch["class_obj"]==k]
 			if all_k.nelement() == 0:
 				# we skip if nothing to log
 				continue
 			all_mean[k] = all_k.mean().detach().cpu().item()
-			self.log("anomaly_avg."+MVTec_DataModule.id2c[k], all_mean[k], on_step=False, on_epoch=True, prog_bar=False)
 			if all_k.nelement()>1:
 				# std with only one element is not defined in pytorch (nan)
 				all_std[k] = all_k.std().detach().cpu().item()
-				self.log("anomaly_std."+MVTec_DataModule.id2c[k], all_std[k], on_step=False, on_epoch=True, prog_bar=False)
 		return {'loss': loss['loss'], 'anom': all_mean, 'a_std': all_std}
 
 	def training_epoch_end(self, outputs):
 		# we need to update all the thresholds
-		all_tre = list()
-		for k in self.thresholds.keys():
+		all_tresh = list()
+		for k in self.thresholds.keys(): # we update the thresholds for each class (not anymore for every category)
 			a = np.array([x['anom'][k] for x in outputs if x['anom'].get(k,None) is not None]) 
 			a_std = np.array([x['a_std'][k] for x in outputs if x['a_std'].get(k,None) is not None]) 
-			avg_anomalyk = a.mean()
-			std_anomalyk = a_std.mean()
+			avg_anomaly_k = a.mean()
+			std_anomaly_k = a_std.mean()
 			# THRESHOLD UPDATE
 			self.thresholds[k] = (1-self.hparams.t_weight)*self.thresholds[k] + \
-								self.hparams.t_weight*(avg_anomalyk + self.hparams.w_std*std_anomalyk)
-			all_tre.append(self.thresholds[k])
+								self.hparams.t_weight*(avg_anomaly_k + self.hparams.w_std*std_anomaly_k)
+			all_tresh.append(self.thresholds[k])
 			self.log("anomaly_threshold."+MVTec_DataModule.id2c[k], self.thresholds[k], on_step=False, on_epoch=True, prog_bar=False)
-		all_tre = np.array(all_tre)
-		self.threshold = all_tre.mean()
+		all_tresh = np.array(all_tresh)
+		self.hparams.threshold = all_tresh.mean()
 		self.log("anomaly_threshold_all_avg", self.threshold, on_step=False, on_epoch=True, prog_bar=True)
 		
 	def validation_step(self, batch, batch_idx):

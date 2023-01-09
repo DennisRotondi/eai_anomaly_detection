@@ -9,6 +9,7 @@ matplotlib==3.5.1
 torchmetrics==0.11.0
 scipy
 wandb
+seaborn
 
 # package location
 --find-links https://download.pytorch.org/whl/torch_stable.html
