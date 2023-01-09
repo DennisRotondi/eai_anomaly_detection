@@ -69,7 +69,6 @@ class AE(pl.LightningModule):
 		if self.hparams.gaussian_initialization:
 			self.encoder.apply(self.weights_init_normal) # apply(f) applies 'f' to all the submodules of the network
 			self.decoder.apply(self.weights_init_normal)
-		#self.threshold = self.hparams.threshold # there are different ways to compute the "ideal" one!
 
 		self.val_precision = Precision(task = 'binary', num_classes = 2, average = 'macro')
 		self.val_recall = Recall(task = 'binary', num_classes = 2, average = 'macro')
@@ -91,20 +90,19 @@ class AE(pl.LightningModule):
 	def forward(self, img):
 		return self.decoder(self.encoder(img))
 	
-	def anomaly_score(self, img, recon): # (batch, 3, 256, 256)
-		"""
-		The maximum anomaly score with MSE that two images 
-		can obtain in our setting is 2x3x256x256 = 393216.
-		We could even normalize the result by dividing it by this value!
-		"""
+	def anomaly_score(self, img, recon): # (batch, 3, 256, 256)	
 		if self.hparams.anomaly_strategy == "mse":
+			#The maximum anomaly score with MSE that two images 
+			#can obtain in our setting is 2x3x256x256 = 393216.
+			#We could even normalize the result by dividing it by this value!
 			recon = recon.view(recon.shape[0],-1) # a sort of flatten operation
 			img = img.view(img.shape[0],-1)
-			return (torch.abs(recon-img).sum(-1)) #/ 393216
+			return (torch.abs(recon-img).sum(-1)) 
 		elif self.hparams.anomaly_strategy == "ssim":
-			return SSIM(recon, img, data_range=2.0, k1=0.01, k2=0.03, reduction=None)
+			# also in this case to apply the treshold mechanism we compute the dissimilarity
+			return (1-SSIM(recon, img, data_range=2.0, k1=0.01, k2=0.03, reduction=None))/2
 		else:
-			return MSSIM(recon, img, data_range=2.0, k1=0.01, k2=0.03, reduction=None)
+			return (1-MSSIM(recon, img, data_range=2.0, k1=0.01, k2=0.03, reduction=None))/2
 	
 	def anomaly_prediction(self, img, recon=None):
 		if recon is None:
@@ -125,20 +123,20 @@ class AE(pl.LightningModule):
 			},
 		}
 
-	def loss_function(self,recon_x, x):
-		""" loss function is mse, 100* (possible hp) is to enlarge the recon diff """
+	def main_loss(self, recon_x, x):
 		if self.hparams.training_strategy == "mse":
-			# note we are using only mse, no contractive effort in the simplest version
-			loss = self.hparams.loss_weight*(recon_x-x)**2
-			if self.hparams.reduction == 'mean':
-				loss = loss.mean()
-			else:
-				loss = loss.sum()
+			loss = torch.nn.functional.mse_loss(recon_x, x, reduction=self.hparams.reduction)
 		elif self.hparams.training_strategy == "ssim":
-			loss = SSIM(recon_x, x, data_range=2.0, k1=0.01, k2=0.03, reduction=None)
+			# note that we want to maximize SSIM, this is equivalent to minimize Structural Dissimilarity DSSIM: (1-SSIM)/2
+			loss = (1-SSIM(recon_x, x, data_range=2.0, k1=0.01, k2=0.03))/2
 		else:
-			loss = MSSIM(recon_x, x, data_range=2.0, k1=0.01, k2=0.03, reduction=None)
-		return {"loss": loss}
+			loss = (1-MSSIM(recon_x, x, data_range=2.0, k1=0.01, k2=0.03))/2
+		# the loss_weight hparams module the importance of the main loss
+		return self.hparams.loss_weight*loss
+
+	def loss_function(self,recon_x, x):
+		# the loss function is simply the main loss here
+		return {"loss": self.main_loss(recon_x, x)}
 
 	def training_step(self, batch, batch_idx):
 		imgs = batch['img']
@@ -206,7 +204,7 @@ class AE(pl.LightningModule):
 		self.log("precision", self.val_precision(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
 		self.log("recall", self.val_recall(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
 		self.log("f1_score", self.val_f1score(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
-		self.log("auroc", self.val_auroc(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
+		self.log("auroc", self.val_auroc(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=False, batch_size=imgs.shape[0])
 		# IMAGES
 		images = self.get_images_for_log(imgs[0:self.hparams.log_images], recon_imgs[0:self.hparams.log_images])
 		return {"images": images}

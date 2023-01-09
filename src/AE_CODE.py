@@ -18,12 +18,9 @@ class CODE_AE(AE):
 	def loss_function(self,recon_x, x):
 		""" loss function is mse + Frobenius norm of 
 		the jacobian matrix (of the Encoder w.r.t. to the inputs)   """
-		if self.hparams.training_strategy == "mse":
-			loss = self.hparams.loss_weight*(recon_x-x)**2
-		elif self.hparams.training_strategy == "ssim":
-			loss = SSIM(recon_x, x, data_range=2.0, k1=0.01, k2=0.03, reduction=None)
-		else:
-			loss = MSSIM(recon_x, x, data_range=2.0, k1=0.01, k2=0.03, reduction=None)
+		loss_dict = dict()
+		loss = self.main_loss(recon_x, x)
+		loss_dict["main_loss"] = loss
 		if self.hparams.contractive:
 			# https://agustinus.kristia.de/techblog/2016/12/05/contractive-autoencoder/
 			# https://github.com/AlexPasqua/Autoencoders
@@ -40,9 +37,7 @@ class CODE_AE(AE):
 			# as an alternative one could use only conv weights
 			# weights_conv = [i.weight for i in self.encoder.convolutions if i.__class__.__name__.find("Conv2d")!= -1]
 			jacobian_loss = self.hparams.lamb*weights.norm(p='fro')
-			loss = loss + jacobian_loss
-		if self.hparams.reduction == 'mean':
-			loss = loss.mean()
-		else:
-			loss = loss.sum()
-		return {"loss": loss}
+			loss_dict["jacobian_loss"] = jacobian_loss
+			loss += jacobian_loss
+		loss_dict["loss"]  = loss
+		return loss_dict
