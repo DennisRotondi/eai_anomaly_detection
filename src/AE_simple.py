@@ -66,10 +66,10 @@ class AE(pl.LightningModule):
 		self.encoder = Encoder(self.hparams.latent_size, self.hparams.img_channels, self.hparams)
 		self.decoder = Decoder(self.hparams.latent_size, self.hparams.img_channels, self.hparams)
 		# https://pytorch.org/docs/master/generated/torch.nn.Module.html?highlight=apply#torch.nn.Module.apply
-		if self.hparams.normalization:
-			self.encoder.apply(self.weights_init_normal)
+		if self.hparams.gaussian_initialization:
+			self.encoder.apply(self.weights_init_normal) # apply(f) applies 'f' to all the submodules of the network
 			self.decoder.apply(self.weights_init_normal)
-		self.threshold = self.hparams.threshold # there are different ways to compute the "ideal" one!
+		#self.threshold = self.hparams.threshold # there are different ways to compute the "ideal" one!
 
 		self.val_precision = Precision(task = 'binary', num_classes = 2, average = 'macro')
 		self.val_recall = Recall(task = 'binary', num_classes = 2, average = 'macro')
@@ -97,20 +97,20 @@ class AE(pl.LightningModule):
 		can obtain in our setting is 2x3x256x256 = 393216.
 		We could even normalize the result by dividing it by this value!
 		"""
-		if self.hparams.anomaly_stategy == "mse":
-			recon = recon.view(recon.shape[0],-1)
+		if self.hparams.anomaly_strategy == "mse":
+			recon = recon.view(recon.shape[0],-1) # a sort of flatten operation
 			img = img.view(img.shape[0],-1)
 			return (torch.abs(recon-img).sum(-1)) #/ 393216
-		elif self.hparams.anomaly_stategy == "ssim":
-			return SSIM( recon, img, reduction=None)
+		elif self.hparams.anomaly_strategy == "ssim":
+			return SSIM(recon, img, data_range=2.0, k1=0.01, k2=0.03, reduction=None)
 		else:
-			return MSSIM(recon, img, reduction=None)
+			return MSSIM(recon, img, data_range=2.0, k1=0.01, k2=0.03, reduction=None)
 	
 	def anomaly_prediction(self, img, recon=None):
 		if recon is None:
 			recon = self(img)
 		anomaly_score = self.anomaly_score(img, recon)
-		ris = (anomaly_score > self.threshold).long()
+		ris = (anomaly_score > self.hparams.threshold).long()
 		return ris
 
 	def configure_optimizers(self):
@@ -127,12 +127,17 @@ class AE(pl.LightningModule):
 
 	def loss_function(self,recon_x, x):
 		""" loss function is mse, 100* (possible hp) is to enlarge the recon diff """
-		# note we are using only mse, no contractive effort in the simplest version
-		loss = self.hparams.loss_weight*(recon_x-x)**2
-		if self.hparams.reduction == 'mean':
-			loss = loss.mean()
+		if self.hparams.training_strategy == "mse":
+			# note we are using only mse, no contractive effort in the simplest version
+			loss = self.hparams.loss_weight*(recon_x-x)**2
+			if self.hparams.reduction == 'mean':
+				loss = loss.mean()
+			else:
+				loss = loss.sum()
+		elif self.hparams.training_strategy == "ssim":
+			loss = SSIM(recon_x, x, data_range=2.0, k1=0.01, k2=0.03, reduction=None)
 		else:
-			loss = loss.sum()
+			loss = MSSIM(recon_x, x, data_range=2.0, k1=0.01, k2=0.03, reduction=None)
 		return {"loss": loss}
 
 	def training_step(self, batch, batch_idx):
@@ -152,13 +157,10 @@ class AE(pl.LightningModule):
 		class_objs = [MVTec_DataModule.id2c[i] for i in batch['class_obj'].tolist()] # class objects list within the batch (dim=batch_size)
 		class_counter = Counter(class_objs)
 		for c in list(class_counter):
-			index_list = []
-			for i,obj in enumerate(class_objs):
-				if obj==c:
-					index_list.append(i)
+			index_list = [i for i,obj in enumerate(class_objs) if obj==c]
 			anomaly_sum = (np.take(anomaly_scores.detach().cpu().numpy(), np.array(index_list)).sum()) / class_counter[c]	
-			self.log("anomaly."+c, anomaly_sum, on_step=False, on_epoch=True, prog_bar=False)
-        ##################################################################################################################
+			self.log("anomaly_score."+c, anomaly_sum, on_step=False, on_epoch=True, prog_bar=False)
+		##################################################################################################################
    
 		return {'loss': loss['loss'], 'anom': a_mean, 'a_std': a_std}
 
@@ -171,9 +173,9 @@ class AE(pl.LightningModule):
 		# THRESHOLD UPDATE
 		# https://www.mdpi.com/1424-8220/22/8/2886
 		# more conservative approach to improve RECALL if w_std == -1
-		self.threshold = (1-self.hparams.t_weight)*self.threshold + \
+		self.hparams.threshold = (1-self.hparams.t_weight)*self.hparams.threshold + \
 							self.hparams.t_weight*(self.avg_anomaly + self.hparams.w_std*self.std_anomaly)
-		self.log("anomaly_threshold", self.threshold, on_step=False, on_epoch=True, prog_bar=True)
+		self.log("anomaly_threshold", self.hparams.threshold, on_step=False, on_epoch=True, prog_bar=True)
 
 	# images logging during training phase but used for validation images
 	def get_images_for_log(self, real, reconstructed):
