@@ -13,22 +13,26 @@ from torchmetrics import Recall, Precision, F1Score
 from torchmetrics.functional import structural_similarity_index_measure as SSIM
 from torchmetrics.functional import multiscale_structural_similarity_index_measure as MSSIM
 from torchmetrics.classification import BinaryAUROC
+from .unet.unet_model import UNet
 
-
-def conv_block(in_features, out_features, kernel_size, stride, padding, bias, slope, normalize = True, affine = True):
+def conv_block(in_features, out_features, kernel_size, stride, padding, bias, slope, normalize = True):
 	layer = [nn.Conv2d(in_features, out_features, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias)]
 	if normalize:
-		layer += [nn.BatchNorm2d(out_features, affine=affine)]
-	if slope != 0:
+		layer += [nn.BatchNorm2d(out_features)]
+	if slope > 0:
 		layer += [nn.LeakyReLU(slope, inplace = True)]
+	elif slope==0:
+		layer += [nn.ReLU(inplace = True)]
 	return layer
 
-def deconv_block(in_features, out_features, kernel_size, stride, padding, bias, slope, normalize = True, affine = True):
+def deconv_block(in_features, out_features, kernel_size, stride, padding, bias, slope, normalize = True):
 	layer = [nn.ConvTranspose2d(in_features, out_features, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias)]
 	if normalize:
-		layer += [nn.BatchNorm2d(out_features, affine=affine)]
-	if slope != 0:
+		layer += [nn.BatchNorm2d(out_features)]
+	if slope > 0:
 		layer += [nn.LeakyReLU(slope, inplace = True)]
+	elif slope==0:
+		layer += [nn.ReLU(inplace = True)]
 	return layer
 
 class Encoder(nn.Module):
@@ -36,12 +40,19 @@ class Encoder(nn.Module):
 		super().__init__()
 		""" the input image is 3x256x256, this size allow to preserve the high res + still load all the dataset"""
 		self.convolutions = nn.Sequential(
-			*conv_block(channels, 16, kernel_size=4, stride=2, padding=1, bias=False, slope = hparams.slope, normalize=True),
-			*[m for mod in [conv_block(2**i, 2**(i+1), kernel_size=4, stride=2, padding=1, bias=False, slope = hparams.slope, normalize=True) \
+			*conv_block(channels, 16, kernel_size=4, stride=2, padding=1, bias=True, slope = hparams.slope, normalize=True),
+			*[m for mod in [conv_block(2**i, 2**(i+1), kernel_size=4, stride=2, padding=1, bias=True, slope = hparams.slope, normalize=True) \
 				for i in range(4,9)] for m in mod],
-			*conv_block(512, 1024, kernel_size=4, stride=1, padding=0, bias=False, slope = 0, normalize=False)
+			*conv_block(512, 1024, kernel_size=4, stride=1, padding=0, bias=True, slope = -1 , normalize=False)
 		)
-		self.fc = nn.Linear(1024, latent_dim)
+		self.fc = nn.Sequential(
+			nn.Linear(1024,512),
+			nn.ReLU(inplace=True),
+			nn.Linear(512,256),
+			nn.ReLU(inplace=True),
+			nn.Linear(256, latent_dim),
+			nn.ReLU(inplace=True)
+		)
 
 	def forward(self, img):
 		return self.fc(self.convolutions(img).squeeze(-1).squeeze(-1))
@@ -50,25 +61,102 @@ class Decoder(nn.Module):
 	def __init__(self, latent_dim, channels, hparams):
 		super().__init__()
 		self.deconvolution = nn.Sequential(
-			*deconv_block(latent_dim, 1024, kernel_size=4, stride=1, padding=0, bias=False, slope = hparams.slope, normalize=True),
-			*[m for mod in [deconv_block(2**(i+1), 2**i, kernel_size=4, stride=2, padding=1, bias=False, slope = hparams.slope, normalize=True) \
+			*deconv_block(latent_dim, 1024, kernel_size=4, stride=1, padding=0, bias=True, slope = hparams.slope, normalize=True),
+			*[m for mod in [deconv_block(2**(i+1), 2**i, kernel_size=4, stride=2, padding=1, bias=True, slope = hparams.slope, normalize=True) \
 				for i in range(9,4,-1)] for m in mod],
-			*deconv_block(32, channels, kernel_size=4, stride=2, padding=1, bias=False, slope = 0, normalize=False))
+			*deconv_block(32, channels, kernel_size=4, stride=2, padding=1, bias=True, slope = -1, normalize=False))
 
 	def forward(self, input):
 		return torch.tanh(self.deconvolution(input.unsqueeze(-1).unsqueeze(-1)))
 
+# here an alternative to these double architecture using a UNET variant.
+# UP UNET module taken from official implementaton, padding strategy to make the solution work
+# https://github.com/HaiyongJiang/U-Net-Pytorch-Unstructured-Buggy/commit/0e854509c2cea854e247a9c615f175f76fbb2e3a
+# https://github.com/xiaopeng-liao/Pytorch-UNet/commit/8ebac70e633bac59fc22bb5195e513d5832fb3bd
+class Up(nn.Module):
+	def __init__(self, in_channels, out_channels):
+		super().__init__()
+		self.up = nn.Sequential(
+			*deconv_block(in_channels, out_channels, kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
+		)
+		self.conv = nn.Sequential(
+			*conv_block(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+			*conv_block(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+		)
+	def forward(self, x1, x2):
+		x1 = self.up(x1)
+		# input is CHW
+		diffY = x2.size()[2] - x1.size()[2]
+		diffX = x2.size()[3] - x1.size()[3]
+		x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
+						diffY // 2, diffY - diffY // 2])
+		x = torch.cat([x2, x1], dim=1)
+		return self.conv(x)
+
+class EncoderDecoder(nn.Module):
+	def __init__(self, channels, hparams):
+		super().__init__()
+		""" the input image for this version is 3x224x224"""
+		self.convolutions = nn.Sequential(
+			nn.Sequential(
+				*conv_block(channels, 64, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+				*conv_block(64, 64, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
+			nn.Sequential(
+				nn.MaxPool2d(2),
+				*conv_block(64, 128, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+				*conv_block(128, 128, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
+			nn.Sequential(
+				nn.MaxPool2d(2),
+				*conv_block(128, 256, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+				*conv_block(256, 256, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
+			nn.Sequential(
+				nn.MaxPool2d(2),
+				*conv_block(256, 512, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+				*conv_block(512, 512, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
+			nn.Sequential(
+				nn.MaxPool2d(2),
+				*conv_block(512, 1024, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+				*conv_block(1024, 1024, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True))
+		)
+		self.ups = nn.Sequential(
+			Up(1024,512),
+			Up(512,256),
+			Up(256,128),
+			# Up(128,64)
+			)
+		self.final_rec = nn.Sequential(
+			*deconv_block(128, 64, kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
+			*conv_block(64, channels, kernel_size=3, stride=1, padding="same", bias=False, slope = 0, normalize=True),
+			*conv_block(channels, channels, kernel_size=3, stride=1, padding="same", bias=False, slope = -1, normalize=True))
+	
+	def forward(self, img):
+		# x1 = self.convolutions[0](img)
+		x2 = self.convolutions[0:2](img)
+		x3 = self.convolutions[2](x2)
+		x4 = self.convolutions[3](x3)
+		x5 = self.convolutions[4](x4)
+		x = self.ups[0](x5, x4)
+		x = self.ups[1](x, x3)
+		x = self.ups[2](x, x2)
+		# note, to reduce the power of the network here we don't see the first features extracted (x1)
+		return torch.tanh(self.final_rec(x))
+	
 class AE(pl.LightningModule):
 	""" Simple Autoencoder """
 	def __init__(self, hparams):
 		super(AE, self).__init__()
 		self.save_hyperparameters(hparams)
-		self.encoder = Encoder(self.hparams.latent_size, self.hparams.img_channels, self.hparams)
-		self.decoder = Decoder(self.hparams.latent_size, self.hparams.img_channels, self.hparams)
-		# https://pytorch.org/docs/master/generated/torch.nn.Module.html?highlight=apply#torch.nn.Module.apply
-		if self.hparams.gaussian_initialization:
-			self.encoder.apply(self.weights_init_normal) # apply(f) applies 'f' to all the submodules of the network
-			self.decoder.apply(self.weights_init_normal)
+		if self.hparams.version == "1":
+			self.encoder = Encoder(self.hparams.latent_size, self.hparams.img_channels, self.hparams)
+			self.decoder = Decoder(self.hparams.latent_size, self.hparams.img_channels, self.hparams)
+			if self.hparams.gaussian_initialization:
+				# https://pytorch.org/docs/master/generated/torch.nn.Module.html?highlight=apply#torch.nn.Module.apply
+				self.encoder.apply(self.weights_init_normal) # apply(f) applies 'f' to all the submodules of the network
+				self.decoder.apply(self.weights_init_normal)
+		elif self.hparams.version == "2":
+			self.encoderdecoder = EncoderDecoder(self.hparams.img_channels, self.hparams)
+			if self.hparams.gaussian_initialization:
+				self.encoderdecoder.apply(self.weights_init_normal) # apply(f) applies 'f' to all the submodules of the network
 
 		self.val_precision = Precision(task = 'binary', num_classes = 2, average = 'macro')
 		self.val_recall = Recall(task = 'binary', num_classes = 2, average = 'macro')
@@ -88,7 +176,10 @@ class AE(pl.LightningModule):
 			torch.nn.init.constant_(m.bias.data, 0.0)
 
 	def forward(self, img):
-		return self.decoder(self.encoder(img))
+		if self.hparams.version == "1":
+			return self.decoder(self.encoder(img))
+		elif self.hparams.version == "2":
+			return self.encoderdecoder(img)
 	
 	def anomaly_score(self, img, recon): # (batch, 3, 256, 256)	
 		if self.hparams.anomaly_strategy == "mse":
@@ -104,7 +195,7 @@ class AE(pl.LightningModule):
 		else:
 			return (1-MSSIM(recon, img, data_range=2.0, k1=0.01, k2=0.03, reduction=None))/2
 	
-	def anomaly_prediction(self, img, recon=None):
+	def anomaly_prediction(self, img, recon=None, batch = None):
 		if recon is None:
 			recon = self(img)
 		anomaly_score = self.anomaly_score(img, recon)
@@ -148,7 +239,9 @@ class AE(pl.LightningModule):
 		# in addition to the loss we're going to compute the "anomaly score", that's not necessarily the same measure of the loss.
 		anomaly_scores = self.anomaly_score(imgs, recon)
 		a_mean = anomaly_scores.mean().detach().cpu().numpy()
-		a_std = anomaly_scores.std().detach().cpu().numpy()
+		a_std = anomaly_scores.std().detach().cpu()
+		# a_mean = anomaly_scores.detach().cpu().numpy()
+		# a_std = anomaly_scores.std().detach().cpu().numpy()
 		
 		##################################################################################################################
 		# OBJECTS ANOMALY SCORES
@@ -201,10 +294,15 @@ class AE(pl.LightningModule):
 		self.log("val_loss", self.loss_function(recon_imgs, imgs)["loss"], on_step=False, on_epoch=True, batch_size=imgs.shape[0])
 		# RECALL, PRECISION, F1 SCORE
 		pred = self.anomaly_prediction(imgs, recon_imgs)
-		self.log("precision", self.val_precision(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
-		self.log("recall", self.val_recall(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
-		self.log("f1_score", self.val_f1score(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
-		self.log("auroc", self.val_auroc(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=False, batch_size=imgs.shape[0])
+		# good practice https://github.com/Lightning-AI/lightning/issues/4396
+		self.val_precision.update(pred, batch['label'])
+		self.val_recall.update(pred, batch['label'])
+		self.val_f1score.update(pred, batch['label'])
+		self.val_auroc.update(pred, batch['label'])
+		self.log("precision", self.val_precision, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
+		self.log("recall", self.val_recall, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
+		self.log("f1_score", self.val_f1score, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
+		self.log("auroc", self.val_auroc, on_step=False, on_epoch=True, prog_bar=False, batch_size=imgs.shape[0])
 		# IMAGES
 		images = self.get_images_for_log(imgs[0:self.hparams.log_images], recon_imgs[0:self.hparams.log_images])
 		return {"images": images}

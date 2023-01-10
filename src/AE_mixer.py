@@ -68,18 +68,18 @@ class Mixer_AE(AE):
         return self.decoder(latent), self.classifier(latent) #self.classifier_res(img) #self.classifier(latent)
     
     # here is encapsulated the prediction logic of the MIXER.
-    def anomaly_prediction(self, img, recon = None, classes = None):
+    def anomaly_prediction(self, img, recon = None, classes = None, batch = None):
         if recon is None:
             recon, classes = self(img)
         anomaly_score = self.anomaly_score(img, recon)
-        if self.hparams.mixer_ae:
-            classes = torch.argmax(classes, dim=-1).tolist() # these are the predicted classes
-            threshold_idx = [self.hparams.thresholds[i] for i in classes] 
-            ris = (anomaly_score > torch.tensor(threshold_idx, device = self.device)).long()
         # if self.hparams.mixer_ae:
-        #     classes = torch.argmax(classes, dim=-1).tolist() # these are the predicted classe
-        #     threshold_idx = [self.hparams.thresholds[i] for i in batch["class_obj"].tolist()] 
+        #     classes = torch.argmax(classes, dim=-1).tolist() # these are the predicted classes
+        #     threshold_idx = [self.hparams.thresholds[i] for i in classes] 
         #     ris = (anomaly_score > torch.tensor(threshold_idx, device = self.device)).long()
+        if self.hparams.mixer_ae:
+            classes = torch.argmax(classes, dim=-1).tolist() # these are the predicted classe
+            threshold_idx = [self.hparams.thresholds[i] for i in batch["class_obj"].tolist()] 
+            ris = (anomaly_score > torch.tensor(threshold_idx, device = self.device)).long()
         else: # we have the possibility of not using the MIXER capability
             ris = (anomaly_score > self.hparams.threshold).long()
         return ris
@@ -145,14 +145,19 @@ class Mixer_AE(AE):
         # LOSS
         self.log("val_loss", self.loss_function(recon_imgs, batch, classes)["loss"], on_step=False, on_epoch=True, batch_size=imgs.shape[0])
         # RECALL, PRECISION, F1 on anomaly predicitons
-        pred = self.anomaly_prediction(imgs, recon_imgs, classes=classes)
-        self.log("precision", self.val_precision(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
-        self.log("recall", self.val_recall(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
-        self.log("f1_score", self.val_f1score(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
-        self.log("auroc", self.val_auroc(pred, batch['label']), on_step=False, on_epoch=True, prog_bar=False, batch_size=imgs.shape[0])
+        pred = self.anomaly_prediction(imgs, recon_imgs, classes=classes, batch=batch)
+        self.val_precision.update(pred, batch['label'])
+        self.val_recall.update(pred, batch['label'])
+        self.val_f1score.update(pred, batch['label'])
+        self.val_auroc.update(pred, batch['label'])
+        self.log("precision", self.val_precision, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
+        self.log("recall", self.val_recall, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
+        self.log("f1_score", self.val_f1score, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
+        self.log("auroc", self.val_auroc, on_step=False, on_epoch=True, prog_bar=False, batch_size=imgs.shape[0])
         # F1 on classes predictions
         classes = torch.argmax(classes, dim = -1)
-        self.log("f1_score_classes", self.val_f1score_classes(classes, batch["class_obj"]), on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
+        self.val_f1score_classes.update(classes, batch["class_obj"])
+        self.log("f1_score_classes", self.val_f1score_classes, on_step=False, on_epoch=True, prog_bar=False, batch_size=imgs.shape[0])
         # IMAGES
         images = self.get_images_for_log(imgs[0:self.hparams.log_images], recon_imgs[0:self.hparams.log_images])
         return {"images": images}

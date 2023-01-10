@@ -13,7 +13,10 @@ class CODE_AE(AE):
 			img = img + torch.rand_like(img)*self.hparams.noise
 			# we need to fix the values in the range [-1,1]
 			img = img.clamp(min=-1, max=1)
-		return self.decoder(self.encoder(img))
+		if self.hparams.version == "1":
+			return self.decoder(self.encoder(img))
+		elif self.hparams.version == "2":
+			return self.encoderdecoder(img)
 
 	def loss_function(self,recon_x, x):
 		""" loss function is mse + Frobenius norm of 
@@ -33,7 +36,10 @@ class CODE_AE(AE):
 			# Compute the Jacobian loss (fro = frobenius norm)
 			# jacobian_loss = self.hparams.lambd * torch.norm(jacobian, p='fro', dim=(1,2))
 			# jacobian_loss = jacobian_loss.mean()
-			weights = torch.concat([param.view(-1) for param in self.encoder.parameters()])
+			if self.hparams.version == "1":
+				weights = torch.concat([param.view(-1) for param in self.encoder.parameters()])
+			elif self.hparams.version == "2":
+				weights = torch.concat([param.view(-1) for param in self.encoderdecoder.convolutions.parameters()])
 			# as an alternative one could use only conv weights
 			# weights_conv = [i.weight for i in self.encoder.convolutions if i.__class__.__name__.find("Conv2d")!= -1]
 			jacobian_loss = self.hparams.lamb*weights.norm(p='fro')
