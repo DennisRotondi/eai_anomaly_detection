@@ -138,9 +138,13 @@ class EncoderDecoder_tmp(nn.Module):
 		x = self.ups[1](x, x3)
 		x = self.ups[2](x, x2)
 		# note, to reduce the power of the network here we don't see the first features extracted (x1)
-		return torch.tanh(self.final_rec(x))
+		if latent:
+			return x5, torch.tanh(self.final_rec(x))
+		else:
+			return torch.tanh(self.final_rec(x))
 
-class EncoderDecoder(nn.Module):
+# idea to skip features at level 1,2
+class EncoderDecoder_tmp2(nn.Module):
 	def __init__(self, channels, hparams):
 		super().__init__()
 		""" the input image for this version is 3x224x224"""
@@ -181,7 +185,7 @@ class EncoderDecoder(nn.Module):
 	
 	def forward(self, img, latent = False):
 		# x1 = self.convolutions[0](img)
-		#x2 = self.convolutions[0:2](img)
+		# x2 = self.convolutions[0:2](img)
 		x3 = self.convolutions[0:3](img)
 		x4 = self.convolutions[3](x3)
 		x5 = self.convolutions[4](x4)
@@ -193,7 +197,62 @@ class EncoderDecoder(nn.Module):
 			return x5, torch.tanh(self.final_rec(x))
 		else:
 			return torch.tanh(self.final_rec(x))
+
+#idea to remove U blocks	
+class EncoderDecoder(nn.Module):
+	def __init__(self, channels, hparams):
+		super().__init__()
+		""" the input image for this version is 3x224x224"""
+		self.encoder = nn.Sequential(
+			nn.Sequential(
+				*conv_block(channels, 64, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+				*conv_block(64, 64, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
+			nn.Sequential(
+				nn.MaxPool2d(2),
+				*conv_block(64, 128, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+				*conv_block(128, 128, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
+			nn.Sequential(
+				nn.MaxPool2d(2),
+				*conv_block(128, 256, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+				*conv_block(256, 256, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
+			nn.Sequential(
+				nn.MaxPool2d(2),
+				*conv_block(256, 512, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+				*conv_block(512, 512, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
+			nn.Sequential(
+				nn.MaxPool2d(2),
+				*conv_block(512, 1024, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+				*conv_block(1024, 1024, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True))
+		)
+		
+		self.decoder = nn.Sequential(
+			*deconv_block(1024, 1024, kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
+			*conv_block(1024, 512, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+			*conv_block(512, 512, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+			
+            *deconv_block(512, 512, kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
+			*conv_block(512, 256, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+			*conv_block(256, 256, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+
+            *deconv_block(256, 256, kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
+			*conv_block(256, 128, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+			*conv_block(128, 128, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+
+            *deconv_block(128, 128, kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
+			*conv_block(128, 64, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+			*conv_block(64, 64, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+
+			*conv_block(64, 3, kernel_size=3, stride=1, padding=1, bias=False, slope = 0.2, normalize=True),
+			*conv_block(3, 3, kernel_size=3, stride=1, padding=1, bias=False, slope = 0.2, normalize=True))
 	
+	def forward(self, img, latent = False):
+		if latent:
+			latent = self.encoder(img)
+			return latent, torch.tanh(self.decoder(latent))
+		else:
+			return torch.tanh(self.decoder(self.encoder(img)))
+
+
 class AE(pl.LightningModule):
 	""" Simple Autoencoder """
 	def __init__(self, hparams):

@@ -4,11 +4,11 @@ from dataclasses import dataclass
 @dataclass
 class Hparams:
     # dataloader params
-    dataset_dir: str = "dataset/mvtec_anomaly_detection" # DENNIS
+    dataset_dir: str = "dataset/mvtec_anomaly_detection_test" # DENNIS
     obj_classes: int = 15 # number of classes in the dataset
     augmentation: bool = False # apply augmentation startegy to input images
     version: str = "2" # 2 versions of CAE, 1 does use flat latent space, 2 multidimensional
-    img_size: int = 224  # size of image in v1 256 work better, in 2 224
+    img_size: int = 224  # size of image in v1 256 works better, in 2 224
     img_channels: int = 3
     batch_size: int = 44 # size of the batches
     n_cpu: int = 8  # number of cpu threads to use for the dataloaders
