@@ -9,7 +9,7 @@ class CODE_AE(AE):
 	def forward(self, img):
 		# this implement the denoising autoencoder mechanism
 		# here we preferred random whitenoise over zero-noise 
-		if self.hparams.noise > 0:
+		if self.hparams.noise > 0 and self.training:
 			img = img + torch.rand_like(img)*self.hparams.noise
 			# we need to fix the values in the range [-1,1]
 			img = img.clamp(min=-1, max=1)

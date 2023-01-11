@@ -13,7 +13,6 @@ from torchmetrics import Recall, Precision, F1Score
 from torchmetrics.functional import structural_similarity_index_measure as SSIM
 from torchmetrics.functional import multiscale_structural_similarity_index_measure as MSSIM
 from torchmetrics.classification import BinaryAUROC
-from .unet.unet_model import UNet
 
 def conv_block(in_features, out_features, kernel_size, stride, padding, bias, slope, normalize = True):
 	layer = [nn.Conv2d(in_features, out_features, kernel_size=kernel_size, stride=stride, padding=padding, bias=bias)]
@@ -93,7 +92,7 @@ class Up(nn.Module):
 		x = torch.cat([x2, x1], dim=1)
 		return self.conv(x)
 
-class EncoderDecoder(nn.Module):
+class EncoderDecoder_tmp(nn.Module):
 	def __init__(self, channels, hparams):
 		super().__init__()
 		""" the input image for this version is 3x224x224"""
@@ -129,7 +128,7 @@ class EncoderDecoder(nn.Module):
 			*conv_block(64, channels, kernel_size=3, stride=1, padding="same", bias=False, slope = 0, normalize=True),
 			*conv_block(channels, channels, kernel_size=3, stride=1, padding="same", bias=False, slope = -1, normalize=True))
 	
-	def forward(self, img):
+	def forward(self, img, latent = False):
 		# x1 = self.convolutions[0](img)
 		x2 = self.convolutions[0:2](img)
 		x3 = self.convolutions[2](x2)
@@ -140,6 +139,60 @@ class EncoderDecoder(nn.Module):
 		x = self.ups[2](x, x2)
 		# note, to reduce the power of the network here we don't see the first features extracted (x1)
 		return torch.tanh(self.final_rec(x))
+
+class EncoderDecoder(nn.Module):
+	def __init__(self, channels, hparams):
+		super().__init__()
+		""" the input image for this version is 3x224x224"""
+		self.convolutions = nn.Sequential(
+			nn.Sequential(
+				*conv_block(channels, 64, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+				*conv_block(64, 64, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
+			nn.Sequential(
+				nn.MaxPool2d(2),
+				*conv_block(64, 128, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+				*conv_block(128, 128, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
+			nn.Sequential(
+				nn.MaxPool2d(2),
+				*conv_block(128, 256, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+				*conv_block(256, 256, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
+			nn.Sequential(
+				nn.MaxPool2d(2),
+				*conv_block(256, 512, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+				*conv_block(512, 512, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
+			nn.Sequential(
+				nn.MaxPool2d(2),
+				*conv_block(512, 1024, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+				*conv_block(1024, 1024, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True))
+		)
+		self.ups = nn.Sequential(
+			Up(1024,512),
+			Up(512,256),
+			# Up(256,128),
+			# Up(128,64)
+			)
+		self.final_rec = nn.Sequential(
+			*deconv_block(256, 128, kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
+			*conv_block(128, 128, kernel_size=3, stride=1, padding="same", bias=False, slope = 0, normalize=True),
+			*conv_block(128, 128, kernel_size=3, stride=1, padding="same", bias=False, slope = 0, normalize=True),
+			*deconv_block(128, 64, kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
+			*conv_block(64, channels, kernel_size=3, stride=1, padding="same", bias=False, slope = 0, normalize=True),
+			*conv_block(channels, channels, kernel_size=3, stride=1, padding="same", bias=False, slope = -1, normalize=True))
+	
+	def forward(self, img, latent = False):
+		# x1 = self.convolutions[0](img)
+		#x2 = self.convolutions[0:2](img)
+		x3 = self.convolutions[0:3](img)
+		x4 = self.convolutions[3](x3)
+		x5 = self.convolutions[4](x4)
+		x = self.ups[0](x5, x4)
+		x = self.ups[1](x, x3)
+		#x = self.ups[2](x, x2)
+		# note, to reduce the power of the network here we don't see the first features extracted (x1,x2)
+		if latent:
+			return x5, torch.tanh(self.final_rec(x))
+		else:
+			return torch.tanh(self.final_rec(x))
 	
 class AE(pl.LightningModule):
 	""" Simple Autoencoder """
@@ -302,7 +355,7 @@ class AE(pl.LightningModule):
 		self.log("precision", self.val_precision, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
 		self.log("recall", self.val_recall, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
 		self.log("f1_score", self.val_f1score, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
-		self.log("auroc", self.val_auroc, on_step=False, on_epoch=True, prog_bar=False, batch_size=imgs.shape[0])
+		self.log("auroc", self.val_auroc, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
 		# IMAGES
 		images = self.get_images_for_log(imgs[0:self.hparams.log_images], recon_imgs[0:self.hparams.log_images])
 		return {"images": images}
