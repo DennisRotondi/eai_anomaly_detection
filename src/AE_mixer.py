@@ -101,14 +101,15 @@ class Mixer_AE(AE):
 		if recon is None:
 			recon, classes = self(img)
 		anomaly_score = self.anomaly_score(img, recon)
-		# if self.hparams.mixer_ae:
-		#     classes = torch.argmax(classes, dim=-1).tolist() # these are the predicted classes
-		#     threshold_idx = [self.hparams.thresholds[i] for i in classes] 
-		#     ris = (anomaly_score > torch.tensor(threshold_idx, device = self.device)).long()
 		if self.hparams.mixer_ae:
-			classes = torch.argmax(classes, dim=-1).tolist() # these are the predicted classe
-			threshold_idx = [self.hparams.thresholds[i] for i in batch["class_obj"].tolist()] 
+			classes = torch.argmax(classes, dim=-1).tolist() # these are the predicted classes
+			threshold_idx = [self.hparams.thresholds[i] for i in classes] 
 			ris = (anomaly_score > torch.tensor(threshold_idx, device = self.device)).long()
+		# -- to test perfect predictions --
+		# if self.hparams.mixer_ae:
+		# 	classes = torch.argmax(classes, dim=-1).tolist() # these are the predicted classe
+		# 	threshold_idx = [self.hparams.thresholds[i] for i in batch["class_obj"].tolist()] 
+		# 	ris = (anomaly_score > torch.tensor(threshold_idx, device = self.device)).long()
 		else: # we have the possibility of not using the MIXER capability
 			ris = (anomaly_score > self.hparams.threshold).long()
 		return ris
