@@ -32,7 +32,7 @@ class Obj_classifer_conv(nn.Module):
 	def __init__(self, ld, out_classes, hparams):
 		# note that ld is the latent dim
 		super().__init__()
-		self.conv = nn.Sequential(*conv_block(1024, ld, kernel_size=3, stride=1, padding=0, bias=False, slope = 0, normalize=True))
+		self.conv = nn.Sequential(*conv_block(hparams.conv_channel, ld, kernel_size=3, stride=1, padding=0, bias=False, slope = 0, normalize=True))
 		self.classifier = nn.Sequential(
 			nn.LazyLinear(ld),
 			nn.ReLU(inplace=True),
@@ -47,27 +47,6 @@ class Obj_classifer_conv(nn.Module):
 		)
 	def forward(self, latent):
 		return self.classifier(self.conv(latent).view(latent.shape[0],-1))
-
-class Obj_classifer_resnet(nn.Module):
-	# in this experiment we tried to classify directly using the resnet from orginal image
-	# it has not been reported since non very interesting
-	def __init__(self, out_classes, hparams):
-		super().__init__()
-		self.cnn = models.resnet18(pretrained=True)
-		for params in self.cnn.parameters():
-			params.requires_grad = False
-		# we unfreeze only the fc layers
-		for params in self.cnn.fc.parameters():
-			params.requires_grad = True
-		self.classifier = nn.Sequential(
-			nn.Linear(1000, 500),
-			nn.ReLU(),
-			nn.Dropout(hparams.dropout),
-			nn.Linear(
-				500, out_classes))
-	def forward(self, x):
-		y = self.cnn(x)
-		return self.classifier(y)
 
 class Mixer_AE(AE):
 	def __init__(self, hparams):
@@ -86,16 +65,14 @@ class Mixer_AE(AE):
 	
 	 # in what follow we implement optionally the CONTRACTIVE and DENOISING behaviour	
 	def forward(self, img):
-		if self.hparams.noise > 0 and self.training:
-			img = img + torch.rand_like(img)*self.hparams.noise
+		if self.hparams.noise > 0:
+			# we want to randomly add or remove
+			img = img + (torch.rand_like(img)-torch.rand_like(img))*self.hparams.noise
+			#we need to fix the values in the range [-1,1]
 			img = img.clamp(min=-1, max=1)
-		if self.hparams.version == "1":
-			latent = self.encoder(img)
-			return self.decoder(latent), self.classifier(latent) #self.classifier_res(img) #self.classifier(latent)
-		elif self.hparams.version == "2":
-			latent, rec = self.encoderdecoder(img, latent=True)
-			return rec, self.classifier(latent)
-	
+		latent = self.encoder(img)
+		return self.decoder(latent), self.classifier(latent)
+
 	# here is encapsulated the prediction logic of the MIXER.
 	def anomaly_prediction(self, img, recon = None, classes = None, batch = None):
 		if recon is None:
@@ -119,10 +96,7 @@ class Mixer_AE(AE):
 		loss = self.main_loss(recon_x, batch_x['img'])
 		loss_dict["main_loss"] = loss
 		if self.hparams.contractive:
-			if self.hparams.version == "1":
-				weights = torch.concat([param.view(-1) for param in self.encoder.parameters()])
-			elif self.hparams.version == "2":
-				weights = torch.concat([param.view(-1) for param in self.encoderdecoder.convolutions.parameters()])
+			weights = torch.concat([param.view(-1) for param in self.encoder.parameters()])
 			jacobian_loss = self.hparams.lamb*weights.norm(p='fro')
 			loss += jacobian_loss
 			loss_dict["jacobian_loss"] = jacobian_loss
@@ -140,7 +114,7 @@ class Mixer_AE(AE):
 		# LOSS
 		self.log_dict(loss)
 		# ANOMALY SCORE --> mean and standard deviation for each class
-		anomaly_scores = self.anomaly_score(imgs, recon)
+		anomaly_scores = self.anomaly_score(imgs, recon).detach().cpu()
 		# print(anomaly_scores.shape)
 		all_std = dict()
 		all_mean = dict()
@@ -149,10 +123,10 @@ class Mixer_AE(AE):
 			if all_k.nelement() == 0:
 				# we skip if nothing to log
 				continue
-			all_mean[k] = all_k.mean().detach().cpu().item()
+			all_mean[k] = all_k.mean().item()
 			if all_k.nelement()>1:
 				# std with only one element is not defined in pytorch (nan)
-				all_std[k] = all_k.std().detach().cpu().item()
+				all_std[k] = all_k.std().item()
 		return {'loss': loss['loss'], 'anom': all_mean, 'a_std': all_std}
 
 	def training_epoch_end(self, outputs):

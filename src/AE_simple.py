@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from torch.optim.lr_scheduler import ReduceLROnPlateau
 import torchvision.utils
 import wandb
+import math
 import numpy as np
 import pytorch_lightning as pl
 from .data_module import MVTec_DataModule
@@ -68,190 +69,60 @@ class Decoder(nn.Module):
 	def forward(self, input):
 		return torch.tanh(self.deconvolution(input.unsqueeze(-1).unsqueeze(-1)))
 
-# here an alternative to these double architecture using a UNET variant.
-# UP UNET module taken from official implementaton, padding strategy to make the solution work
-# https://github.com/HaiyongJiang/U-Net-Pytorch-Unstructured-Buggy/commit/0e854509c2cea854e247a9c615f175f76fbb2e3a
-# https://github.com/xiaopeng-liao/Pytorch-UNet/commit/8ebac70e633bac59fc22bb5195e513d5832fb3bd
-class Up(nn.Module):
-	def __init__(self, in_channels, out_channels):
+class Encoder_multi(nn.Module):
+	def __init__(self, latent_dim, channels, hparams):
 		super().__init__()
-		self.up = nn.Sequential(
-			*deconv_block(in_channels, out_channels, kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
-		)
-		self.conv = nn.Sequential(
-			*conv_block(in_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-			*conv_block(out_channels, out_channels, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-		)
-	def forward(self, x1, x2):
-		x1 = self.up(x1)
-		# input is CHW
-		diffY = x2.size()[2] - x1.size()[2]
-		diffX = x2.size()[3] - x1.size()[3]
-		x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
-						diffY // 2, diffY - diffY // 2])
-		x = torch.cat([x2, x1], dim=1)
-		return self.conv(x)
-
-class EncoderDecoder_tmp(nn.Module):
-	def __init__(self, channels, hparams):
-		super().__init__()
-		""" the input image for this version is 3x224x224"""
-		self.convolutions = nn.Sequential(
-			nn.Sequential(
-				*conv_block(channels, 64, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-				*conv_block(64, 64, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
-			nn.Sequential(
-				nn.MaxPool2d(2),
-				*conv_block(64, 128, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-				*conv_block(128, 128, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
-			nn.Sequential(
-				nn.MaxPool2d(2),
-				*conv_block(128, 256, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-				*conv_block(256, 256, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
-			nn.Sequential(
-				nn.MaxPool2d(2),
-				*conv_block(256, 512, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-				*conv_block(512, 512, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
-			nn.Sequential(
-				nn.MaxPool2d(2),
-				*conv_block(512, 1024, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-				*conv_block(1024, 1024, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True))
-		)
-		self.ups = nn.Sequential(
-			Up(1024,512),
-			Up(512,256),
-			Up(256,128),
-			# Up(128,64)
-			)
-		self.final_rec = nn.Sequential(
-			*deconv_block(128, 64, kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
-			*conv_block(64, channels, kernel_size=3, stride=1, padding="same", bias=False, slope = 0, normalize=True),
-			*conv_block(channels, channels, kernel_size=3, stride=1, padding="same", bias=False, slope = -1, normalize=True))
-	
-	def forward(self, img, latent = False):
-		# x1 = self.convolutions[0](img)
-		x2 = self.convolutions[0:2](img)
-		x3 = self.convolutions[2](x2)
-		x4 = self.convolutions[3](x3)
-		x5 = self.convolutions[4](x4)
-		x = self.ups[0](x5, x4)
-		x = self.ups[1](x, x3)
-		x = self.ups[2](x, x2)
-		# note, to reduce the power of the network here we don't see the first features extracted (x1)
-		if latent:
-			return x5, torch.tanh(self.final_rec(x))
-		else:
-			return torch.tanh(self.final_rec(x))
-
-# idea to skip features at level 1,2
-class EncoderDecoder_tmp2(nn.Module):
-	def __init__(self, channels, hparams):
-		super().__init__()
-		""" the input image for this version is 3x224x224"""
-		self.convolutions = nn.Sequential(
-			nn.Sequential(
-				*conv_block(channels, 64, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-				*conv_block(64, 64, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
-			nn.Sequential(
-				nn.MaxPool2d(2),
-				*conv_block(64, 128, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-				*conv_block(128, 128, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
-			nn.Sequential(
-				nn.MaxPool2d(2),
-				*conv_block(128, 256, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-				*conv_block(256, 256, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
-			nn.Sequential(
-				nn.MaxPool2d(2),
-				*conv_block(256, 512, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-				*conv_block(512, 512, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
-			nn.Sequential(
-				nn.MaxPool2d(2),
-				*conv_block(512, 1024, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-				*conv_block(1024, 1024, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True))
-		)
-		self.ups = nn.Sequential(
-			Up(1024,512),
-			Up(512,256),
-			# Up(256,128),
-			# Up(128,64)
-			)
-		self.final_rec = nn.Sequential(
-			*deconv_block(256, 128, kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
-			*conv_block(128, 128, kernel_size=3, stride=1, padding="same", bias=False, slope = 0, normalize=True),
-			*conv_block(128, 128, kernel_size=3, stride=1, padding="same", bias=False, slope = 0, normalize=True),
-			*deconv_block(128, 64, kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
-			*conv_block(64, channels, kernel_size=3, stride=1, padding="same", bias=False, slope = 0, normalize=True),
-			*conv_block(channels, channels, kernel_size=3, stride=1, padding="same", bias=False, slope = -1, normalize=True))
-	
-	def forward(self, img, latent = False):
-		# x1 = self.convolutions[0](img)
-		# x2 = self.convolutions[0:2](img)
-		x3 = self.convolutions[0:3](img)
-		x4 = self.convolutions[3](x3)
-		x5 = self.convolutions[4](x4)
-		x = self.ups[0](x5, x4)
-		x = self.ups[1](x, x3)
-		#x = self.ups[2](x, x2)
-		# note, to reduce the power of the network here we don't see the first features extracted (x1,x2)
-		if latent:
-			return x5, torch.tanh(self.final_rec(x))
-		else:
-			return torch.tanh(self.final_rec(x))
-
-#idea to remove U blocks	
-class EncoderDecoder(nn.Module):
-	def __init__(self, channels, hparams):
-		super().__init__()
-		""" the input image for this version is 3x224x224"""
+		""" the input image that works better for this version is 3x224x224"""
+		dims_layers = int(math.log2(latent_dim))
+		l = [2**(i+1) for i in range(dims_layers)][-5:]
 		self.encoder = nn.Sequential(
-			nn.Sequential(
-				*conv_block(channels, 64, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-				*conv_block(64, 64, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
-			nn.Sequential(
-				nn.MaxPool2d(2),
-				*conv_block(64, 128, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-				*conv_block(128, 128, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
-			nn.Sequential(
-				nn.MaxPool2d(2),
-				*conv_block(128, 256, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-				*conv_block(256, 256, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
-			nn.Sequential(
-				nn.MaxPool2d(2),
-				*conv_block(256, 512, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-				*conv_block(512, 512, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True)),
-			nn.Sequential(
-				nn.MaxPool2d(2),
-				*conv_block(512, 1024, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-				*conv_block(1024, 1024, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True))
+			*conv_block(channels, l[0], kernel_size=3, stride=1, padding=1, bias=False, slope = hparams.slope, normalize=True),
+			*conv_block(l[0], l[0], kernel_size=3, stride=1, padding=1, bias=False, slope = hparams.slope, normalize=True),
+			nn.MaxPool2d(2),
+			*conv_block(l[0], l[1], kernel_size=3, stride=1, padding=1, bias=False, slope = hparams.slope, normalize=True),
+			*conv_block(l[1], l[1], kernel_size=3, stride=1, padding=1, bias=False, slope = hparams.slope, normalize=True),
+			nn.MaxPool2d(2),
+			*conv_block(l[1], l[2], kernel_size=3, stride=1, padding=1, bias=False, slope = hparams.slope, normalize=True),
+			*conv_block(l[2], l[2], kernel_size=3, stride=1, padding=1, bias=False, slope = hparams.slope, normalize=True),
+			nn.MaxPool2d(2),
+			*conv_block(l[2], l[3], kernel_size=3, stride=1, padding=1, bias=False, slope = hparams.slope, normalize=True),
+			*conv_block(l[3], l[3], kernel_size=3, stride=1, padding=1, bias=False, slope = hparams.slope, normalize=True),
+			nn.MaxPool2d(2),
+			*conv_block(l[3], l[4], kernel_size=3, stride=1, padding=1, bias=False, slope = hparams.slope, normalize=True),
+			*conv_block(l[4], l[4], kernel_size=3, stride=1, padding=1, bias=False, slope = hparams.slope, normalize=True)
 		)
-		
+	def forward(self, img):
+		# note no squeeze here
+		return self.encoder(img)
+
+class Decoder_multi(nn.Module):
+	def __init__(self, latent_dim, channels, hparams):
+		super().__init__()
+		# latent channels
+		dims_layers = int(math.log2(latent_dim))
+		l = [2**(i+1) for i in range(dims_layers)][-5:]
 		self.decoder = nn.Sequential(
-			*deconv_block(1024, 1024, kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
-			*conv_block(1024, 512, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-			*conv_block(512, 512, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+			*deconv_block(l[4], l[4], kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
+			*conv_block(l[4], l[3], kernel_size=3, stride=1, padding=1, bias=False, slope = hparams.slope, normalize=True),
+			*conv_block(l[3], l[3], kernel_size=3, stride=1, padding=1, bias=False, slope = hparams.slope, normalize=True),
 			
-            *deconv_block(512, 512, kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
-			*conv_block(512, 256, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-			*conv_block(256, 256, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+            *deconv_block(l[3], l[3], kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
+			*conv_block(l[3], l[2], kernel_size=3, stride=1, padding=1, bias=False, slope = hparams.slope, normalize=True),
+			*conv_block(l[2], l[2], kernel_size=3, stride=1, padding=1, bias=False, slope = hparams.slope, normalize=True),
 
-            *deconv_block(256, 256, kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
-			*conv_block(256, 128, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-			*conv_block(128, 128, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+            *deconv_block(l[2], l[2], kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
+			*conv_block(l[2], l[1], kernel_size=3, stride=1, padding=1, bias=False, slope = hparams.slope, normalize=True),
+			*conv_block(l[1], l[1], kernel_size=3, stride=1, padding=1, bias=False, slope = hparams.slope, normalize=True),
 
-            *deconv_block(128, 128, kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
-			*conv_block(128, 64, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
-			*conv_block(64, 64, kernel_size=3, stride=1, padding=1, bias=False, slope = 0, normalize=True),
+            *deconv_block(l[1], l[1], kernel_size=2, stride=2, padding=0, bias=True, slope = -1, normalize=False),
+			*conv_block(l[1], l[0], kernel_size=3, stride=1, padding=1, bias=False, slope = hparams.slope, normalize=True),
+			*conv_block(l[0], l[0], kernel_size=3, stride=1, padding=1, bias=False, slope = hparams.slope, normalize=True),
 
-			*conv_block(64, 3, kernel_size=3, stride=1, padding=1, bias=False, slope = 0.2, normalize=True),
-			*conv_block(3, 3, kernel_size=3, stride=1, padding=1, bias=False, slope = 0.2, normalize=True))
-	
-	def forward(self, img, latent = False):
-		if latent:
-			latent = self.encoder(img)
-			return latent, torch.tanh(self.decoder(latent))
-		else:
-			return torch.tanh(self.decoder(self.encoder(img)))
-
+			*conv_block(l[0], channels, kernel_size=3, stride=1, padding=1, bias=False, slope = hparams.slope, normalize=True),
+			*conv_block(channels, channels, kernel_size=3, stride=1, padding=1, bias=False, slope = -1, normalize=True))
+			
+	def forward(self, latent):
+		return torch.tanh(self.decoder(latent))
 
 class AE(pl.LightningModule):
 	""" Simple Autoencoder """
@@ -261,18 +132,18 @@ class AE(pl.LightningModule):
 		if self.hparams.version == "1":
 			self.encoder = Encoder(self.hparams.latent_size, self.hparams.img_channels, self.hparams)
 			self.decoder = Decoder(self.hparams.latent_size, self.hparams.img_channels, self.hparams)
-			if self.hparams.gaussian_initialization:
-				# https://pytorch.org/docs/master/generated/torch.nn.Module.html?highlight=apply#torch.nn.Module.apply
-				self.encoder.apply(self.weights_init_normal) # apply(f) applies 'f' to all the submodules of the network
-				self.decoder.apply(self.weights_init_normal)
 		elif self.hparams.version == "2":
-			self.encoderdecoder = EncoderDecoder(self.hparams.img_channels, self.hparams)
-			if self.hparams.gaussian_initialization:
-				self.encoderdecoder.apply(self.weights_init_normal) # apply(f) applies 'f' to all the submodules of the network
+			self.encoder = Encoder_multi(self.hparams.conv_channel, self.hparams.img_channels, self.hparams)
+			self.decoder = Decoder_multi(self.hparams.conv_channel, self.hparams.img_channels, self.hparams)
+        # apply(f) applies 'f' to all the submodules of the network
+		# https://pytorch.org/docs/master/generated/torch.nn.Module.html?highlight=apply#torch.nn.Module.apply
+		if self.hparams.gaussian_initialization:
+			self.encoder.apply(self.weights_init_normal) # apply(f) applies 'f' to all the submodules of the network
+			self.decoder.apply(self.weights_init_normal)
 
-		self.val_precision = Precision(task = 'binary', num_classes = 2, average = 'macro')
-		self.val_recall = Recall(task = 'binary', num_classes = 2, average = 'macro')
-		self.val_f1score = F1Score(task = 'binary', num_classes = 2, average = 'macro')
+		self.val_precision = Precision(task = 'binary', num_classes = 2)
+		self.val_recall = Recall(task = 'binary', num_classes = 2)
+		self.val_f1score = F1Score(task = 'binary', num_classes = 2)
 		self.val_auroc = BinaryAUROC()
 
 	# to apply the weights initialization of cycle-gan paper
@@ -288,10 +159,7 @@ class AE(pl.LightningModule):
 			torch.nn.init.constant_(m.bias.data, 0.0)
 
 	def forward(self, img):
-		if self.hparams.version == "1":
-			return self.decoder(self.encoder(img))
-		elif self.hparams.version == "2":
-			return self.encoderdecoder(img)
+		return self.decoder(self.encoder(img))
 	
 	def anomaly_score(self, img, recon): # (batch, 3, 256, 256)	
 		if self.hparams.anomaly_strategy == "mse":
@@ -348,22 +216,11 @@ class AE(pl.LightningModule):
 		# LOSS
 		self.log_dict(loss)
 		# ANOMALY SCORE --> mean and standard deviation
-		# in addition to the loss we're going to compute the "anomaly score", that's not necessarily the same measure of the loss.
+		# in addition to the loss we're going to compute the "anomaly score",
+		# that's not necessarily the same measure of the loss.
 		anomaly_scores = self.anomaly_score(imgs, recon)
 		a_mean = anomaly_scores.mean().detach().cpu().numpy()
 		a_std = anomaly_scores.std().detach().cpu()
-		# a_mean = anomaly_scores.detach().cpu().numpy()
-		# a_std = anomaly_scores.std().detach().cpu().numpy()
-		
-		##################################################################################################################
-		# OBJECTS ANOMALY SCORES
-		class_objs = [MVTec_DataModule.id2c[i] for i in batch['class_obj'].tolist()] # class objects list within the batch (dim=batch_size)
-		class_counter = Counter(class_objs)
-		for c in list(class_counter):
-			index_list = [i for i,obj in enumerate(class_objs) if obj==c]
-			anomaly_sum = (np.take(anomaly_scores.detach().cpu().numpy(), np.array(index_list)).sum()) / class_counter[c]	
-			self.log("anomaly_score."+c, anomaly_sum, on_step=False, on_epoch=True, prog_bar=False)
-		##################################################################################################################
    
 		return {'loss': loss['loss'], 'anom': a_mean, 'a_std': a_std}
 
@@ -389,7 +246,6 @@ class AE(pl.LightningModule):
 			couple = torchvision.utils.make_grid(
 				[real[i], reconstructed[i]],
 				nrow=2,
-				# normalize=True,
 				scale_each=False,
 				pad_value=1,
 				padding=4,
@@ -416,11 +272,14 @@ class AE(pl.LightningModule):
 		self.log("f1_score", self.val_f1score, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
 		self.log("auroc", self.val_auroc, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
 		# IMAGES
-		images = self.get_images_for_log(imgs[0:self.hparams.log_images], recon_imgs[0:self.hparams.log_images])
-		return {"images": images}
+		if self.hparams.log_image_each_epoch!=0:
+			images = self.get_images_for_log(imgs[0:self.hparams.log_images], recon_imgs[0:self.hparams.log_images])
+			return {"images": images}
+		else:
+			return None
 
 	def validation_epoch_end(self, outputs):
-		if self.global_step%self.hparams.log_image_each_epoch==0:
+		if self.hparams.log_image_each_epoch!=0 and self.global_step%self.hparams.log_image_each_epoch==0:
 			# we randomly select one batch index
 			bidx = random.randrange(100) % len(outputs)
 			images = outputs[bidx]["images"]
