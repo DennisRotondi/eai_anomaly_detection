@@ -3,8 +3,7 @@ from dataclasses import dataclass
 
 @dataclass
 class Hparams:
-    
-    # DATALOADER params
+    # dataloader params
     dataset_dir: str = "dataset/mvtec_anomaly_detection"
     obj_classes: int = 15 # number of classes in the dataset
     augmentation: bool = False # apply augmentation startegy to input images
