@@ -8,6 +8,7 @@ import numpy as np
 from torchmetrics.functional import structural_similarity_index_measure as SSIM
 from torchmetrics.functional import multiscale_structural_similarity_index_measure as MSSIM
 from torchvision import models
+
 # CLASSIFIER
 class Obj_classifer(nn.Module):
 	def __init__(self, ld, out_classes, hparams):
@@ -28,6 +29,7 @@ class Obj_classifer(nn.Module):
 	def forward(self, latent):
 		return self.classifier(latent)
 
+# CLASSIFIER with latent space Convolution
 class Obj_classifer_conv(nn.Module):
 	def __init__(self, ld, out_classes, hparams):
 		# note that ld is the latent dim
@@ -55,15 +57,16 @@ class Mixer_AE(AE):
 			self.classifier = Obj_classifer(self.hparams.latent_size, self.hparams.obj_classes, self.hparams)
 		elif self.hparams.version == "2":
 			self.classifier = Obj_classifer_conv(self.hparams.latent_size, self.hparams.obj_classes, self.hparams)
-		# alternative experiment using resnet classifier, not from latent space
+		# we also tried an alternative experiment using resnet classifier, not from latent space but directly from the input image
 		# self.classifier_res = Obj_classifer_resnet(self.hparams.obj_classes, self.hparams)
-		# if you want to predict using different tresholds you need to store 
+		
+  		# if you want to predict using different tresholds you need to store 
 		# different tresholds. If you prefer not then you can average all of them.
 		self.hparams.thresholds = {a : self.hparams.threshold for a in MVTec_DataModule.id2c.keys()}
 		# metric to log the classification problem
 		self.val_f1score_classes = F1Score(task = 'multiclass', num_classes = self.hparams.obj_classes, average = 'macro')
 	
-	 # in what follow we implement optionally the CONTRACTIVE and DENOISING behaviour	
+	# in what follow we implement optionally the CONTRACTIVE and DENOISING behaviour	
 	def forward(self, img):
 		if self.hparams.noise > 0:
 			# we want to randomly add or remove
@@ -83,11 +86,12 @@ class Mixer_AE(AE):
 			threshold_idx = [self.hparams.thresholds[i] for i in classes] 
 			ris = (anomaly_score > torch.tensor(threshold_idx, device = self.device)).long()
 		# -- to test perfect predictions --
+		# we used at the beginning for understanding if the mixer strategy would have been worth it or not
 		# if self.hparams.mixer_ae:
 		# 	classes = torch.argmax(classes, dim=-1).tolist() # these are the predicted classe
 		# 	threshold_idx = [self.hparams.thresholds[i] for i in batch["class_obj"].tolist()] 
 		# 	ris = (anomaly_score > torch.tensor(threshold_idx, device = self.device)).long()
-		else: # we have the possibility of not using the MIXER capability
+		else: # we have also the possibility of not using the MIXER capability
 			ris = (anomaly_score > self.hparams.threshold).long()
 		return ris
 	
@@ -115,7 +119,6 @@ class Mixer_AE(AE):
 		self.log_dict(loss)
 		# ANOMALY SCORE --> mean and standard deviation for each class
 		anomaly_scores = self.anomaly_score(imgs, recon).detach().cpu()
-		# print(anomaly_scores.shape)
 		all_std = dict()
 		all_mean = dict()
 		for k in self.hparams.thresholds.keys(): # for each class

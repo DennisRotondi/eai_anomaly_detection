@@ -135,7 +135,7 @@ class AE(pl.LightningModule):
 		elif self.hparams.version == "2":
 			self.encoder = Encoder_multi(self.hparams.conv_channel, self.hparams.img_channels, self.hparams)
 			self.decoder = Decoder_multi(self.hparams.conv_channel, self.hparams.img_channels, self.hparams)
-        # apply(f) applies 'f' to all the submodules of the network
+        
 		# https://pytorch.org/docs/master/generated/torch.nn.Module.html?highlight=apply#torch.nn.Module.apply
 		if self.hparams.gaussian_initialization:
 			self.encoder.apply(self.weights_init_normal) # apply(f) applies 'f' to all the submodules of the network
@@ -163,9 +163,9 @@ class AE(pl.LightningModule):
 	
 	def anomaly_score(self, img, recon): # (batch, 3, 256, 256)	
 		if self.hparams.anomaly_strategy == "mse":
-			#The maximum anomaly score with MSE that two images 
-			#can obtain in our setting is 2x3x256x256 = 393216.
-			#We could even normalize the result by dividing it by this value!
+			# The maximum anomaly score with MSE that two images 
+			# can obtain in our setting is 2x3x256x256 = 393216.
+			# We could even normalize the result by dividing it by this value!
 			recon = recon.view(recon.shape[0],-1) # a sort of flatten operation
 			img = img.view(img.shape[0],-1)
 			return (torch.abs(recon-img).sum(-1)) 
@@ -221,6 +221,16 @@ class AE(pl.LightningModule):
 		anomaly_scores = self.anomaly_score(imgs, recon)
 		a_mean = anomaly_scores.mean().detach().cpu().numpy()
 		a_std = anomaly_scores.std().detach().cpu()
+  
+		##################################################################################################################
+		# OBJECTS ANOMALY SCORES
+		# class_objs = [MVTec_DataModule.id2c[i] for i in batch['class_obj'].tolist()] # class objects list within the batch (dim=batch_size)
+		# class_counter = Counter(class_objs)
+		# for c in list(class_counter):
+		# 	index_list = [i for i,obj in enumerate(class_objs) if obj==c]
+		# 	anomaly_sum = (np.take(anomaly_scores.detach().cpu().numpy(), np.array(index_list)).sum()) / class_counter[c]	
+		# 	self.log("anomaly_score."+c, anomaly_sum, on_step=False, on_epoch=True, prog_bar=False)
+		##################################################################################################################
    
 		return {'loss': loss['loss'], 'anom': a_mean, 'a_std': a_std}
 
@@ -262,7 +272,8 @@ class AE(pl.LightningModule):
 		self.log("val_loss", self.loss_function(recon_imgs, imgs)["loss"], on_step=False, on_epoch=True, batch_size=imgs.shape[0])
 		# RECALL, PRECISION, F1 SCORE
 		pred = self.anomaly_prediction(imgs, recon_imgs)
-		# good practice https://github.com/Lightning-AI/lightning/issues/4396
+		# good practice to follow with pytorch_lightning for logging values each iteration!
+  		# https://github.com/Lightning-AI/lightning/issues/4396
 		self.val_precision.update(pred, batch['label'])
 		self.val_recall.update(pred, batch['label'])
 		self.val_f1score.update(pred, batch['label'])
