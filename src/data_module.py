@@ -43,7 +43,7 @@ class MVTec_Dataset(Dataset):
 					current_dir = os.path.join(f,dir)
 					for t in os.listdir(current_dir):
 						imgs = os.path.join(current_dir,t)
-						label = 1 if t=="good" else 0
+						label = 0 if t=="good" else 1
 						for image_path in  tqdm([os.path.join(imgs,e) for e in os.listdir(imgs)], desc = class_obj, position=0, leave = False):
 							img = self.transform(Image.open(image_path).convert('RGB'))
 							self.data.append({"img" : img, "class_obj": MVTec_DataModule.c2id[class_obj], "label" : label})
