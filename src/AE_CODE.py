@@ -22,7 +22,7 @@ class CODE_AE(AE):
 		loss_dict = dict()
 		loss = self.main_loss(recon_x, x)
 		loss_dict["main_loss"] = loss
-		if self.hparams.contractive:
+		if self.hparams.contractive and self.training:
 			# https://agustinus.kristia.de/techblog/2016/12/05/contractive-autoencoder/
 			# https://github.com/AlexPasqua/Autoencoders
 			# NOTE: the true implementation is what follows but it requires a lot of gpu memory,

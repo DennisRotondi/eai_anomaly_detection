@@ -281,7 +281,7 @@ class AE(pl.LightningModule):
 		self.log("precision", self.val_precision, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
 		self.log("recall", self.val_recall, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
 		self.log("f1_score", self.val_f1score, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
-		self.log("auroc", self.val_auroc, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
+		self.log("auroc", self.val_auroc, on_step=False, on_epoch=True, prog_bar=False, batch_size=imgs.shape[0])
 		# IMAGES
 		if self.hparams.log_image_each_epoch!=0:
 			images = self.get_images_for_log(imgs[0:self.hparams.log_images], recon_imgs[0:self.hparams.log_images])

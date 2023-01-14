@@ -68,7 +68,7 @@ class Mixer_AE(AE):
 	
 	# in what follow we implement optionally the CONTRACTIVE and DENOISING behaviour	
 	def forward(self, img):
-		if self.hparams.noise > 0:
+		if self.hparams.noise > 0 and self.training:
 			# we want to randomly add or remove
 			img = img + (torch.rand_like(img)-torch.rand_like(img))*self.hparams.noise
 			#we need to fix the values in the range [-1,1]
@@ -167,7 +167,7 @@ class Mixer_AE(AE):
 		self.log("precision", self.val_precision, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
 		self.log("recall", self.val_recall, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
 		self.log("f1_score", self.val_f1score, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
-		self.log("auroc", self.val_auroc, on_step=False, on_epoch=True, prog_bar=True, batch_size=imgs.shape[0])
+		self.log("auroc", self.val_auroc, on_step=False, on_epoch=True, prog_bar=False, batch_size=imgs.shape[0])
 		# F1 on classes predictions
 		classes = torch.argmax(classes, dim = -1)
 		self.val_f1score_classes.update(classes, batch["class_obj"])
