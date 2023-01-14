@@ -68,13 +68,14 @@ class MVTec_DataModule(pl.LightningDataModule):
 	7: 'metal_nut', 8: 'transistor', 9: 'carpet', 10: 'bottle', 11: 'grid', 12: 'toothbrush', 13: 'leather', 14: 'cable'}
 	def __init__(self, hparams: dict):
 		super().__init__()
-		self.save_hyperparameters(hparams)
+		self.save_hyperparameters(hparams, logger=False)
 
 	def setup(self, stage=None):
-		# TRAIN
-		self.data_train = MVTec_Dataset(self.hparams.dataset_dir, "train", self.hparams)
-		# TEST
-		self.data_test = MVTec_Dataset(self.hparams.dataset_dir, "test", self.hparams)
+		if not hasattr(self,"data_train"):
+			# TRAIN
+			self.data_train = MVTec_Dataset(self.hparams.dataset_dir, "train", self.hparams)
+			# TEST
+			self.data_test = MVTec_Dataset(self.hparams.dataset_dir, "test", self.hparams)
 
 	def train_dataloader(self):
 		return DataLoader(
