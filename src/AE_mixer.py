@@ -62,7 +62,9 @@ class Mixer_AE(AE):
 		
   		# if you want to predict using different tresholds you need to store 
 		# different tresholds. If you prefer not then you can average all of them.
-		self.hparams.thresholds = {a : self.hparams.threshold for a in MVTec_DataModule.id2c.keys()}
+		# if we miss the tresholds param (not in a checkpoint, we load it)
+		if not hasattr(self.hparams, 'thresholds'):
+			self.hparams.thresholds = {a : self.hparams.threshold for a in MVTec_DataModule.id2c.keys()}
 		# metric to log the classification problem
 		self.val_f1score_classes = F1Score(task = 'multiclass', num_classes = self.hparams.obj_classes, average = 'macro')
 	
